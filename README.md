@@ -93,6 +93,7 @@ It supports:
 
 - **Browser mode** (no backend): client-side frame continuity/quality checks.
 - **Remote API mode** (optional): sends upload to your FastAPI backend for full forensic analysis.
+- **Session key generation button**: creates per-user, per-session keys (no hardcoded API keys in repo).
 
 To enable GitHub Pages:
 
@@ -105,6 +106,58 @@ To enable GitHub Pages:
 
 Note: browser-only mode cannot run full ffprobe packet/container internals.  
 For comprehensive analysis use Remote API mode against a deployed `qvk serve` backend.
+
+---
+
+## API key/session-key security model
+
+- There are **no hardcoded API keys** in this repository.
+- The backend issues **ephemeral session keys** via:
+  - `POST /api/v1/session-key`
+- Protected endpoints (`/api/v1/jobs*`) require:
+  - `X-Session-Key: <generated_key>`
+- Keys are client-bound and expire automatically.
+- Generation is rate-limited by default to **10 keys per window**.
+- Each generated key has a default **job quota of 10**.
+
+### Configure security (server env vars)
+
+```bash
+# Required in production (do not commit secrets)
+export QVK_SESSION_KEY_SECRET="replace-with-strong-random-secret"
+
+# Optional security controls
+export QVK_SESSION_KEY_TTL_SECONDS=3600
+export QVK_SESSION_KEY_GEN_LIMIT=10
+export QVK_SESSION_KEY_GEN_WINDOW_SECONDS=3600
+export QVK_SESSION_KEY_JOB_LIMIT=10
+
+# For GitHub Pages -> backend remote mode (CORS)
+export QVK_CORS_ALLOW_ORIGINS="https://<your-user>.github.io"
+```
+
+### How users get a key in GitHub Pages UI
+
+1. Open the GitHub Pages app.
+2. Enable **Use Remote API**.
+3. Enter backend URL.
+4. Click **Generate Session Key**.
+5. Run analysis (the key is stored in `sessionStorage` for that browser session).
+
+### cURL example
+
+```bash
+API_BASE="https://your-api.example.com"
+
+# Generate ephemeral key
+SESSION_KEY=$(curl -sS -X POST "$API_BASE/api/v1/session-key" | python3 -c 'import sys,json;print(json.load(sys.stdin)["session_key"])')
+
+# Submit analysis job
+curl -sS -X POST "$API_BASE/api/v1/jobs" \
+  -H "X-Session-Key: $SESSION_KEY" \
+  -F "file=@/path/to/video.mp4" \
+  -F 'options={"preset":"balanced","sample_fps":2.0,"max_frames":2000,"sensitivity":0.7}'
+```
 
 ---
 

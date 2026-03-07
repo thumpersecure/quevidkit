@@ -10,6 +10,7 @@ const explanationList = document.getElementById("explanation-list");
 const segmentList = document.getElementById("segment-list");
 const checksJson = document.getElementById("checks-json");
 const analyzeBtn = document.getElementById("analyze-btn");
+let sessionKeyRecord = null;
 
 function advancedOptions() {
   return {
@@ -37,7 +38,7 @@ async function pollJob(jobId) {
     if (attempts > maxAttempts) {
       throw new Error("Timed out waiting for analysis to finish.");
     }
-    const statusResponse = await fetch(`/api/v1/jobs/${jobId}`);
+    const statusResponse = await apiFetch(`/api/v1/jobs/${jobId}`, { method: "GET" });
     if (!statusResponse.ok) {
       throw new Error("Unable to get job status");
     }
@@ -46,7 +47,7 @@ async function pollJob(jobId) {
     progressBar.style.width = `${status.progress_percent}%`;
 
     if (status.status === "completed") {
-      const resultResponse = await fetch(`/api/v1/jobs/${jobId}/result`);
+      const resultResponse = await apiFetch(`/api/v1/jobs/${jobId}/result`, { method: "GET" });
       if (!resultResponse.ok) {
         throw new Error("Unable to get completed analysis result");
       }
@@ -58,6 +59,42 @@ async function pollJob(jobId) {
     }
     await sleep(1200);
   }
+}
+
+async function generateSessionKey() {
+  const response = await fetch("/api/v1/session-key", { method: "POST" });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Unable to generate session key: ${body}`);
+  }
+  const payload = await response.json();
+  sessionKeyRecord = {
+    key: payload.session_key,
+    expiresAt: new Date(payload.expires_at_utc).getTime()
+  };
+}
+
+async function ensureSessionKey() {
+  if (sessionKeyRecord && Date.now() < sessionKeyRecord.expiresAt) {
+    return sessionKeyRecord.key;
+  }
+  await generateSessionKey();
+  return sessionKeyRecord.key;
+}
+
+async function apiFetch(path, init) {
+  let key = await ensureSessionKey();
+  const headers = new Headers(init.headers || {});
+  headers.set("X-Session-Key", key);
+  let response = await fetch(path, { ...init, headers });
+  if (response.status === 401) {
+    await generateSessionKey();
+    key = sessionKeyRecord.key;
+    const retryHeaders = new Headers(init.headers || {});
+    retryHeaders.set("X-Session-Key", key);
+    response = await fetch(path, { ...init, headers: retryHeaders });
+  }
+  return response;
 }
 
 function renderResult(result) {
@@ -110,7 +147,7 @@ form.addEventListener("submit", async (event) => {
   data.append("options", JSON.stringify(advancedOptions()));
 
   try {
-    const response = await fetch("/api/v1/jobs", { method: "POST", body: data });
+    const response = await apiFetch("/api/v1/jobs", { method: "POST", body: data });
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(`Upload failed: ${errorText}`);
