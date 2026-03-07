@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>quevidkit - GitHub Pages Forensic Analyzer</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main class="container">
+    <section class="card">
+      <h1>quevidkit Forensic Video Tool</h1>
+      <p class="muted">
+        GitHub Pages edition: runs in your browser without server-side code.
+        It estimates tampering signals from frame continuity and quality shifts.
+      </p>
+      <p class="warning">
+        Browser mode cannot access deep container internals (full ffprobe packet/codec analysis).
+        For comprehensive results, use Remote API mode.
+      </p>
+
+      <form id="analyze-form">
+        <label class="field">
+          <span>Video file</span>
+          <input id="video-file" type="file" accept="video/*" required>
+        </label>
+
+        <details class="advanced">
+          <summary>Advanced options</summary>
+          <div class="advanced-grid">
+            <label class="field">
+              <span>Sample interval (seconds)</span>
+              <input id="sample-interval" type="number" min="0.1" max="5" step="0.1" value="0.5">
+            </label>
+            <label class="field">
+              <span>Max samples</span>
+              <input id="max-samples" type="number" min="10" max="2000" step="1" value="240">
+            </label>
+            <label class="field">
+              <span>Sensitivity (0-1)</span>
+              <input id="sensitivity" type="number" min="0.05" max="0.99" step="0.01" value="0.7">
+            </label>
+            <label class="field">
+              <span>Remote API URL (optional)</span>
+              <input id="remote-api-url" type="url" placeholder="https://your-api.example.com">
+            </label>
+            <label><input id="use-remote-api" type="checkbox"> Use Remote API for full scan</label>
+          </div>
+        </details>
+
+        <button id="analyze-btn" type="submit">Analyze</button>
+      </form>
+    </section>
+
+    <section id="progress-card" class="card hidden">
+      <h2>Progress</h2>
+      <p id="progress-text">Preparing...</p>
+      <div class="progress-track"><div id="progress-bar" class="progress-bar"></div></div>
+    </section>
+
+    <section id="result-card" class="card hidden">
+      <h2>Result</h2>
+      <p><strong>Mode:</strong> <span id="result-mode"></span></p>
+      <p><strong>Verdict:</strong> <span id="result-label"></span></p>
+      <p><strong>Tamper probability:</strong> <span id="result-probability"></span></p>
+      <p><strong>Confidence:</strong> <span id="result-confidence"></span></p>
+      <h3>Why</h3>
+      <ul id="result-explanation"></ul>
+      <h3>Signals</h3>
+      <pre id="result-signals"></pre>
+    </section>
+  </main>
+
+  <script src="./app.js"></script>
+</body>
+</html>
