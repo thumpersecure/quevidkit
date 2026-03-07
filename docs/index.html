@@ -41,13 +41,16 @@
               <input id="sensitivity" type="number" min="0.05" max="0.99" step="0.01" value="0.7">
             </label>
             <label class="field">
-              <span>Remote API URL (optional)</span>
+              <span>FastAPI base URL (required for Remote API mode)</span>
               <input id="remote-api-url" type="url" placeholder="https://your-api.example.com">
+              <small id="remote-api-help" class="muted">Use only the base URL (example: http://127.0.0.1:8000 or https://api.example.com).</small>
+              <small id="remote-endpoint-preview" class="muted">Session key endpoint preview will appear here.</small>
             </label>
-            <label><input id="use-remote-api" type="checkbox"> Use Remote API for full scan</label>
+            <label><input id="use-remote-api" type="checkbox"> Use Remote API for full scan (requires session key)</label>
             <div class="field key-controls">
               <span>Remote session key (ephemeral)</span>
               <div class="inline-actions">
+                <button id="use-local-fastapi-btn" type="button" class="secondary">Use Local FastAPI URL</button>
                 <button id="generate-session-btn" type="button">Generate Session Key</button>
                 <button id="clear-session-btn" type="button" class="secondary">Clear Key</button>
               </div>

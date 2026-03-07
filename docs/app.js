@@ -19,14 +19,17 @@ const resultSignals = document.getElementById("result-signals");
 const downloadReportBtn = document.getElementById("download-report-btn");
 const remoteApiUrlInput = document.getElementById("remote-api-url");
 const useRemoteApiInput = document.getElementById("use-remote-api");
+const useLocalFastapiBtn = document.getElementById("use-local-fastapi-btn");
 const generateSessionBtn = document.getElementById("generate-session-btn");
 const clearSessionBtn = document.getElementById("clear-session-btn");
 const sessionKeyDisplay = document.getElementById("session-key-display");
 const sessionKeyStatus = document.getElementById("session-key-status");
 const sessionQuotaStatus = document.getElementById("session-quota-status");
 const remoteError = document.getElementById("remote-error");
+const remoteEndpointPreview = document.getElementById("remote-endpoint-preview");
 
 const REMOTE_SESSION_PREFIX = "qvk.remote.session.";
+const REMOTE_BASE_URL_STORAGE_KEY = "qvk.remote.baseUrl";
 const FALLBACK_LIMIT = 10;
 let latestReport = null;
 
@@ -226,8 +229,61 @@ body{font-family:Arial,sans-serif;background:#f5f6fa;color:#111;margin:20px}
 </body></html>`;
 }
 
+function parseRemoteBaseUrl(raw) {
+  const value = (raw || "").trim();
+  if (!value) {
+    return { baseUrl: "", error: "Enter your FastAPI base URL." };
+  }
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return { baseUrl: "", error: "Invalid URL format. Use http://... or https://..." };
+  }
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    return { baseUrl: "", error: "URL must start with http:// or https://." };
+  }
+  if (parsed.search || parsed.hash) {
+    return { baseUrl: "", error: "Remove query parameters/hash from the base URL." };
+  }
+  let path = parsed.pathname.replace(/\/+$/, "");
+  if (path.endsWith("/api/v1")) path = path.slice(0, -7);
+  else if (path.endsWith("/api")) path = path.slice(0, -4);
+  const baseUrl = `${parsed.origin}${path}`;
+  if (window.location.protocol === "https:" && parsed.protocol === "http:" && parsed.hostname !== "localhost" && parsed.hostname !== "127.0.0.1") {
+    return { baseUrl, error: "HTTPS pages cannot call non-local HTTP APIs (mixed content blocked)." };
+  }
+  return { baseUrl, error: "" };
+}
+
 function normalizeBaseUrl(raw) {
-  return (raw || "").trim().replace(/\/+$/, "");
+  return parseRemoteBaseUrl(raw).baseUrl;
+}
+
+function sessionKeyEndpoint(baseUrl) {
+  return `${baseUrl}/api/v1/session-key`;
+}
+
+function inferLocalFastapiUrl() {
+  if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+    return "http://127.0.0.1:8000";
+  }
+  return "";
+}
+
+function updateRemoteUrlHelper() {
+  const { baseUrl, error } = parseRemoteBaseUrl(remoteApiUrlInput.value);
+  if (!baseUrl) {
+    remoteEndpointPreview.textContent = "Session key endpoint preview will appear here.";
+  } else {
+    remoteEndpointPreview.textContent = `Will call: ${sessionKeyEndpoint(baseUrl)}`;
+  }
+  generateSessionBtn.disabled = !baseUrl || !!error;
+  if (error && useRemoteApiInput.checked) {
+    setRemoteError(error);
+  } else if (!error) {
+    setRemoteError("");
+  }
 }
 
 function sessionStorageKey(baseUrl) {
@@ -266,20 +322,26 @@ function isSessionExpired(session) {
 }
 
 function renderRemoteSessionState() {
-  const baseUrl = normalizeBaseUrl(remoteApiUrlInput.value);
+  const { baseUrl, error } = parseRemoteBaseUrl(remoteApiUrlInput.value);
+  if (!baseUrl) {
+    sessionKeyDisplay.value = "";
+    sessionKeyStatus.textContent = "No active key. Enter FastAPI URL first.";
+    sessionQuotaStatus.textContent = error || "Generation limit: 10 keys per window.";
+    return;
+  }
   const session = loadRemoteSession(baseUrl);
   if (!session) {
     sessionKeyDisplay.value = "";
-    sessionKeyStatus.textContent = "No active key. Click Generate Session Key.";
+    sessionKeyStatus.textContent = `No active key for ${baseUrl}. Click Generate Session Key.`;
     sessionQuotaStatus.textContent = "Generation limit: 10 keys per window.";
     return;
   }
   const expired = isSessionExpired(session);
   sessionKeyDisplay.value = maskSessionKey(session.sessionKey);
   if (expired) {
-    sessionKeyStatus.textContent = "Session key expired. Generate a new one.";
+    sessionKeyStatus.textContent = `Session key for ${baseUrl} expired. Generate a new one.`;
   } else {
-    sessionKeyStatus.textContent = `Active key expires at ${new Date(session.expiresAtMs).toLocaleString()}.`;
+    sessionKeyStatus.textContent = `Active key for ${baseUrl} expires at ${new Date(session.expiresAtMs).toLocaleString()}.`;
   }
   const quota = session.rateLimit || {};
   const qLimit = quota.limit ?? FALLBACK_LIMIT;
@@ -296,11 +358,25 @@ async function sleep(ms) {
 
 async function generateRemoteSessionKey() {
   setRemoteError("");
-  const baseUrl = normalizeBaseUrl(remoteApiUrlInput.value);
-  if (!baseUrl) throw new Error("Provide Remote API URL first.");
-  const response = await fetch(`${baseUrl}/api/v1/session-key`, { method: "POST" });
+  const parsed = parseRemoteBaseUrl(remoteApiUrlInput.value);
+  const baseUrl = parsed.baseUrl;
+  if (!baseUrl) throw new Error(parsed.error || "Provide Remote API URL first.");
+  if (parsed.error) throw new Error(parsed.error);
+  let response;
+  try {
+    response = await fetch(sessionKeyEndpoint(baseUrl), { method: "POST" });
+  } catch {
+    throw new Error(
+      `Cannot reach ${baseUrl}. Check URL, server availability, and CORS for ${window.location.origin}.`
+    );
+  }
   if (!response.ok) {
     const body = await response.text();
+    if (response.status === 404) {
+      throw new Error(
+        `Session endpoint not found at ${sessionKeyEndpoint(baseUrl)}. Use FastAPI base URL only (not /api or /api/v1).`
+      );
+    }
     throw new Error(`Session key generation failed: ${body}`);
   }
   const payload = await response.json();
@@ -312,6 +388,7 @@ async function generateRemoteSessionKey() {
     jobQuota: payload.job_quota || { limit: FALLBACK_LIMIT, remaining: FALLBACK_LIMIT }
   };
   saveRemoteSession(baseUrl, record);
+  localStorage.setItem(REMOTE_BASE_URL_STORAGE_KEY, baseUrl);
   renderRemoteSessionState();
 }
 
@@ -713,6 +790,21 @@ function getOptions() {
   };
 }
 
+function bootstrapRemoteApiUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const queryApi = params.get("api");
+  const savedApi = localStorage.getItem(REMOTE_BASE_URL_STORAGE_KEY);
+  const inferred = inferLocalFastapiUrl();
+  const initial = queryApi || savedApi || inferred || "";
+  if (initial) {
+    remoteApiUrlInput.value = initial;
+  }
+  if (params.get("remote") === "1") {
+    useRemoteApiInput.checked = true;
+  }
+  updateRemoteUrlHelper();
+}
+
 generateSessionBtn.addEventListener("click", async () => {
   generateSessionBtn.disabled = true;
   setRemoteError("");
@@ -721,23 +813,36 @@ generateSessionBtn.addEventListener("click", async () => {
   } catch (error) {
     setRemoteError(error.message);
   } finally {
-    generateSessionBtn.disabled = false;
+    updateRemoteUrlHelper();
   }
 });
 
+useLocalFastapiBtn.addEventListener("click", () => {
+  remoteApiUrlInput.value = "http://127.0.0.1:8000";
+  updateRemoteUrlHelper();
+  renderRemoteSessionState();
+});
+
 clearSessionBtn.addEventListener("click", () => {
-  const baseUrl = normalizeBaseUrl(remoteApiUrlInput.value);
+  const baseUrl = parseRemoteBaseUrl(remoteApiUrlInput.value).baseUrl;
   clearRemoteSession(baseUrl);
+  renderRemoteSessionState();
+});
+
+remoteApiUrlInput.addEventListener("input", () => {
+  updateRemoteUrlHelper();
   renderRemoteSessionState();
 });
 
 remoteApiUrlInput.addEventListener("change", () => {
   setRemoteError("");
+  updateRemoteUrlHelper();
   renderRemoteSessionState();
 });
 
 useRemoteApiInput.addEventListener("change", () => {
   setRemoteError("");
+  updateRemoteUrlHelper();
   renderRemoteSessionState();
 });
 
@@ -758,8 +863,10 @@ form.addEventListener("submit", async (event) => {
     const options = getOptions();
     let report;
     if (options.useRemoteApi) {
-      const baseUrl = normalizeBaseUrl(remoteApiUrlInput.value);
-      if (!baseUrl) throw new Error("Provide Remote API URL first.");
+      const parsed = parseRemoteBaseUrl(remoteApiUrlInput.value);
+      const baseUrl = parsed.baseUrl;
+      if (!baseUrl) throw new Error(parsed.error || "Provide FastAPI base URL first.");
+      if (parsed.error) throw new Error(parsed.error);
       requireActiveRemoteSession(baseUrl);
       setProgress(10, "Creating remote job");
       const job = await createRemoteJob(baseUrl, file, options);
@@ -794,4 +901,5 @@ downloadReportBtn.addEventListener("click", () => {
   URL.revokeObjectURL(url);
 });
 
+bootstrapRemoteApiUrl();
 renderRemoteSessionState();
