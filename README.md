@@ -81,6 +81,33 @@ Useful flags:
 
 ---
 
+## GitHub Pages app (static)
+
+A static GitHub Pages frontend is included in `docs/`.
+
+- `docs/index.html`
+- `docs/styles.css`
+- `docs/app.js`
+
+It supports:
+
+- **Browser mode** (no backend): client-side frame continuity/quality checks.
+- **Remote API mode** (optional): sends upload to your FastAPI backend for full forensic analysis.
+
+To enable GitHub Pages:
+
+1. Go to repository **Settings -> Pages**
+2. Under **Build and deployment**, set:
+   - Source: **Deploy from a branch**
+   - Branch: your default branch
+   - Folder: `/docs`
+3. Save, then open the Pages URL GitHub provides.
+
+Note: browser-only mode cannot run full ffprobe packet/container internals.  
+For comprehensive analysis use Remote API mode against a deployed `qvk serve` backend.
+
+---
+
 ## Output model (high level)
 
 Each report includes:
