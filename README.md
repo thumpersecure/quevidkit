@@ -147,9 +147,16 @@ export QVK_CORS_ALLOW_ORIGINS="https://<your-user>.github.io"
 
 1. Open the GitHub Pages app.
 2. Enable **Use Remote API**.
-3. Enter backend URL.
-4. Click **Generate Session Key**.
-5. Run analysis (the key is stored in `sessionStorage` for that browser session).
+3. Set FastAPI base URL:
+   - Enter manually (example: `https://api.example.com`), or
+   - click **Use Local FastAPI URL** (`http://127.0.0.1:8000`) for local development.
+4. Confirm the endpoint preview (`.../api/v1/session-key`) shown by the UI.
+5. Click **Generate Session Key**.
+6. Run analysis (the key is stored in `sessionStorage` for that browser session).
+
+Tip: you can prefill the Pages app URL with query params:
+- `?api=https://your-api.example.com`
+- `?remote=1` to enable Remote API mode by default
 
 ### cURL example
 
