@@ -58,6 +58,10 @@ input[type="url"] {
   padding: 9px 11px;
 }
 
+input[readonly] {
+  background: #f3f4f8;
+}
+
 button {
   border: 0;
   border-radius: 8px;
@@ -72,6 +76,10 @@ button:disabled {
   background: #8a95b7;
 }
 
+button.secondary {
+  background: #6b7285;
+}
+
 .advanced {
   margin-bottom: 14px;
 }
@@ -81,6 +89,23 @@ button:disabled {
   grid-template-columns: 1fr 1fr;
   gap: 10px;
   padding-top: 10px;
+}
+
+.key-controls {
+  grid-column: 1 / -1;
+}
+
+.inline-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.error {
+  display: block;
+  margin-top: 6px;
+  color: #9f1239;
+  font-weight: 600;
 }
 
 .progress-track {

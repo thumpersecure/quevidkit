@@ -1,17 +1,22 @@
 from __future__ import annotations
 
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+import hashlib
+import hmac
 import json
 import os
 from pathlib import Path
+import secrets
 import threading
 import time
 import uuid
 from typing import Any
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -29,12 +34,175 @@ MAX_UPLOAD_BYTES = int(os.environ.get("QVK_MAX_UPLOAD_BYTES", str(1024 * 1024 * 
 UPLOAD_RETENTION_SECONDS = int(os.environ.get("QVK_UPLOAD_RETENTION_SECONDS", str(24 * 60 * 60)))
 KEEP_UPLOADS = os.environ.get("QVK_KEEP_UPLOADS", "0") == "1"
 
+SESSION_KEY_TTL_SECONDS = int(os.environ.get("QVK_SESSION_KEY_TTL_SECONDS", "3600"))
+SESSION_KEY_GEN_LIMIT = int(os.environ.get("QVK_SESSION_KEY_GEN_LIMIT", "10"))
+SESSION_KEY_GEN_WINDOW_SECONDS = int(os.environ.get("QVK_SESSION_KEY_GEN_WINDOW_SECONDS", "3600"))
+SESSION_KEY_JOB_LIMIT = int(os.environ.get("QVK_SESSION_KEY_JOB_LIMIT", "10"))
+_session_secret = os.environ.get("QVK_SESSION_KEY_SECRET")
+if not _session_secret:
+    # Ephemeral fallback keeps secrets out of repo and rotates on each server restart.
+    _session_secret = secrets.token_urlsafe(48)
+
+
+def _iso_from_ts(epoch_seconds: float) -> str:
+    return datetime.fromtimestamp(epoch_seconds, tz=timezone.utc).isoformat()
+
+
+@dataclass
+class SessionPrincipal:
+    client_id: str
+    key_id: str
+    remaining_job_creates: int
+
+
+@dataclass
+class SessionKeyRecord:
+    key_id: str
+    token_hash: str
+    client_id: str
+    issued_at_s: float
+    expires_at_s: float
+    remaining_job_creates: int
+
+
+class SessionKeyManager:
+    def __init__(
+        self,
+        secret: str,
+        generation_limit: int,
+        generation_window_seconds: int,
+        key_ttl_seconds: int,
+        key_job_limit: int,
+    ) -> None:
+        self._secret = secret.encode("utf-8")
+        self._generation_limit = generation_limit
+        self._generation_window_s = generation_window_seconds
+        self._key_ttl_s = key_ttl_seconds
+        self._key_job_limit = key_job_limit
+        self._keys: dict[str, SessionKeyRecord] = {}
+        self._generation_events: dict[str, deque[float]] = {}
+        self._lock = threading.Lock()
+
+    def _hash_token(self, key_id: str, token_secret: str) -> str:
+        payload = f"{key_id}.{token_secret}".encode("utf-8")
+        return hmac.new(self._secret, payload, hashlib.sha256).hexdigest()
+
+    def _cleanup_locked(self, now_s: float) -> None:
+        expired_key_ids = [key_id for key_id, record in self._keys.items() if record.expires_at_s <= now_s]
+        for key_id in expired_key_ids:
+            self._keys.pop(key_id, None)
+        for client_id in list(self._generation_events.keys()):
+            events = self._generation_events[client_id]
+            while events and (now_s - events[0] > self._generation_window_s):
+                events.popleft()
+            if not events:
+                self._generation_events.pop(client_id, None)
+
+    def issue_key(self, client_id: str, now_s: float | None = None) -> dict[str, Any]:
+        current = now_s if now_s is not None else time.time()
+        with self._lock:
+            self._cleanup_locked(current)
+            events = self._generation_events.setdefault(client_id, deque())
+            while events and (current - events[0] > self._generation_window_s):
+                events.popleft()
+            if len(events) >= self._generation_limit:
+                reset_after_s = max(1, int(self._generation_window_s - (current - events[0])))
+                raise HTTPException(
+                    status_code=429,
+                    detail="Session key generation rate limit exceeded (10 per window).",
+                    headers={"Retry-After": str(reset_after_s)},
+                )
+            events.append(current)
+
+            key_id = secrets.token_urlsafe(8).replace("-", "").replace("_", "")
+            token_secret = secrets.token_urlsafe(24)
+            token = f"qvk_{key_id}.{token_secret}"
+            record = SessionKeyRecord(
+                key_id=key_id,
+                token_hash=self._hash_token(key_id, token_secret),
+                client_id=client_id,
+                issued_at_s=current,
+                expires_at_s=current + self._key_ttl_s,
+                remaining_job_creates=self._key_job_limit,
+            )
+            self._keys[key_id] = record
+            remaining_generation = max(0, self._generation_limit - len(events))
+            return {
+                "session_key": token,
+                "key_id": key_id,
+                "expires_at_utc": _iso_from_ts(record.expires_at_s),
+                "expires_in_seconds": self._key_ttl_s,
+                "rate_limit": {
+                    "limit": self._generation_limit,
+                    "remaining": remaining_generation,
+                    "window_seconds": self._generation_window_s,
+                },
+                "job_quota": {
+                    "limit": self._key_job_limit,
+                    "remaining": record.remaining_job_creates,
+                },
+            }
+
+    def generation_quota(self, client_id: str, now_s: float | None = None) -> dict[str, Any]:
+        current = now_s if now_s is not None else time.time()
+        with self._lock:
+            self._cleanup_locked(current)
+            events = self._generation_events.get(client_id, deque())
+            while events and (current - events[0] > self._generation_window_s):
+                events.popleft()
+            remaining = max(0, self._generation_limit - len(events))
+            return {
+                "limit": self._generation_limit,
+                "remaining": remaining,
+                "window_seconds": self._generation_window_s,
+            }
+
+    def validate_key(
+        self,
+        key_text: str,
+        client_id: str,
+        *,
+        consume_job_create: bool = False,
+        now_s: float | None = None,
+    ) -> SessionPrincipal:
+        current = now_s if now_s is not None else time.time()
+        if not key_text.startswith("qvk_") or "." not in key_text:
+            raise HTTPException(status_code=401, detail="Invalid session key format.")
+        raw_key_id, raw_secret = key_text[4:].split(".", maxsplit=1)
+        if not raw_key_id or not raw_secret:
+            raise HTTPException(status_code=401, detail="Invalid session key format.")
+
+        with self._lock:
+            self._cleanup_locked(current)
+            record = self._keys.get(raw_key_id)
+            if not record:
+                raise HTTPException(status_code=401, detail="Unknown or expired session key.")
+            expected_hash = self._hash_token(raw_key_id, raw_secret)
+            if not hmac.compare_digest(expected_hash, record.token_hash):
+                raise HTTPException(status_code=401, detail="Session key mismatch.")
+            if record.client_id != client_id:
+                raise HTTPException(status_code=401, detail="Session key does not match current client.")
+            if record.expires_at_s <= current:
+                self._keys.pop(raw_key_id, None)
+                raise HTTPException(status_code=401, detail="Session key expired.")
+            if consume_job_create:
+                if record.remaining_job_creates <= 0:
+                    raise HTTPException(status_code=429, detail="Session key job quota exceeded (10).")
+                record.remaining_job_creates -= 1
+            return SessionPrincipal(
+                client_id=record.client_id,
+                key_id=record.key_id,
+                remaining_job_creates=record.remaining_job_creates,
+            )
+
 
 @dataclass
 class JobRecord:
     job_id: str
     file_path: str
     options: dict[str, Any]
+    owner_client_id: str
+    owner_key_id: str
     status: str = "queued"
     phase: str = "queued"
     progress_percent: int = 0
@@ -44,7 +212,14 @@ class JobRecord:
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
-    def touch(self, *, status: str | None = None, phase: str | None = None, progress: int | None = None, message: str | None = None) -> None:
+    def touch(
+        self,
+        *,
+        status: str | None = None,
+        phase: str | None = None,
+        progress: int | None = None,
+        message: str | None = None,
+    ) -> None:
         if status is not None:
             self.status = status
         if phase is not None:
@@ -88,7 +263,25 @@ class JobStore:
 app = FastAPI(title="quevidkit web")
 app.mount("/static", StaticFiles(directory=str(ROOT / "static")), name="static")
 store = JobStore()
+session_keys = SessionKeyManager(
+    secret=_session_secret,
+    generation_limit=SESSION_KEY_GEN_LIMIT,
+    generation_window_seconds=SESSION_KEY_GEN_WINDOW_SECONDS,
+    key_ttl_seconds=SESSION_KEY_TTL_SECONDS,
+    key_job_limit=SESSION_KEY_JOB_LIMIT,
+)
 executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="qvk-worker")
+
+_cors_origins_raw = os.environ.get("QVK_CORS_ALLOW_ORIGINS", "").strip()
+if _cors_origins_raw:
+    allow_origins = [origin.strip() for origin in _cors_origins_raw.split(",") if origin.strip()]
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=allow_origins or ["*"],
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "X-Session-Key"],
+    )
 
 
 def _allowed_filename(name: str) -> bool:
@@ -144,6 +337,43 @@ async def _save_upload_stream(file: UploadFile, destination: Path) -> int:
     return total_bytes
 
 
+def _client_id_from_request(request: Request) -> str:
+    ip = request.client.host if request.client else "unknown"
+    user_agent = request.headers.get("user-agent", "")[:256]
+    raw = f"{ip}|{user_agent}".encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()[:24]
+
+
+def _extract_session_key(request: Request) -> str | None:
+    x_session_key = request.headers.get("x-session-key")
+    if x_session_key:
+        return x_session_key.strip()
+    authorization = request.headers.get("authorization", "")
+    if authorization.lower().startswith("bearer "):
+        return authorization[7:].strip()
+    return None
+
+
+def _authorize_request(request: Request, *, consume_job_create: bool = False) -> SessionPrincipal:
+    key_text = _extract_session_key(request)
+    if not key_text:
+        raise HTTPException(
+            status_code=401,
+            detail="Missing session key. Generate one at /api/v1/session-key.",
+        )
+    client_id = _client_id_from_request(request)
+    return session_keys.validate_key(key_text, client_id, consume_job_create=consume_job_create)
+
+
+def _get_owned_job_or_404(job_id: str, principal: SessionPrincipal) -> JobRecord:
+    job = store.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.owner_client_id != principal.client_id:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
+
+
 def _run_analysis_job(job_id: str) -> None:
     job = store.get(job_id)
     if not job:
@@ -151,7 +381,12 @@ def _run_analysis_job(job_id: str) -> None:
     try:
         job.touch(status="processing", phase="extracting_metadata", progress=15, message="Running metadata checks")
         options = AnalysisOptions.from_dict(job.options)
-        job.touch(status="processing", phase="forensic_analysis", progress=55, message="Analyzing temporal and quality signals")
+        job.touch(
+            status="processing",
+            phase="forensic_analysis",
+            progress=55,
+            message="Analyzing temporal and quality signals",
+        )
         result = analyze_video(job.file_path, options=options)
         job.result = result.to_dict()
         job.touch(status="completed", phase="done", progress=100, message="Analysis complete")
@@ -176,11 +411,42 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.post("/api/v1/session-key")
+async def create_session_key(request: Request) -> JSONResponse:
+    client_id = _client_id_from_request(request)
+    payload = session_keys.issue_key(client_id)
+    quota = session_keys.generation_quota(client_id)
+    response = JSONResponse(
+        status_code=201,
+        content={
+            "session_key": payload["session_key"],
+            "key_id": payload["key_id"],
+            "expires_at_utc": payload["expires_at_utc"],
+            "expires_in_seconds": payload["expires_in_seconds"],
+            "rate_limit": quota,
+            "job_quota": payload["job_quota"],
+        },
+        headers={"Cache-Control": "no-store"},
+    )
+    response.headers["X-RateLimit-Limit"] = str(quota["limit"])
+    response.headers["X-RateLimit-Remaining"] = str(quota["remaining"])
+    return response
+
+
+@app.get("/api/v1/session-key/quota")
+async def session_key_quota(request: Request) -> dict[str, Any]:
+    client_id = _client_id_from_request(request)
+    quota = session_keys.generation_quota(client_id)
+    return {"rate_limit": quota}
+
+
 @app.post("/api/v1/jobs")
 async def create_job(
+    request: Request,
     file: UploadFile = File(...),
     options: str | None = Form(default=None),
 ) -> JSONResponse:
+    principal = _authorize_request(request, consume_job_create=True)
     if not file.filename:
         raise HTTPException(status_code=400, detail="Missing file name")
     if not _allowed_filename(file.filename):
@@ -193,25 +459,31 @@ async def create_job(
 
     _ = await _save_upload_stream(file, destination)
 
-    job = JobRecord(job_id=job_id, file_path=str(destination), options=parsed_options.__dict__)
+    job = JobRecord(
+        job_id=job_id,
+        file_path=str(destination),
+        options=parsed_options.__dict__,
+        owner_client_id=principal.client_id,
+        owner_key_id=principal.key_id,
+    )
     store.put(job)
     executor.submit(_run_analysis_job, job_id)
-    return JSONResponse(status_code=202, content=store.to_status_dict(job))
+    payload = store.to_status_dict(job)
+    payload["session_key_remaining_jobs"] = principal.remaining_job_creates
+    return JSONResponse(status_code=202, content=payload)
 
 
 @app.get("/api/v1/jobs/{job_id}")
-async def job_status(job_id: str) -> dict[str, Any]:
-    job = store.get(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+async def job_status(request: Request, job_id: str) -> dict[str, Any]:
+    principal = _authorize_request(request)
+    job = _get_owned_job_or_404(job_id, principal)
     return store.to_status_dict(job)
 
 
 @app.get("/api/v1/jobs/{job_id}/result")
-async def job_result(job_id: str) -> dict[str, Any]:
-    job = store.get(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+async def job_result(request: Request, job_id: str) -> dict[str, Any]:
+    principal = _authorize_request(request)
+    job = _get_owned_job_or_404(job_id, principal)
     if job.status == "failed":
         raise HTTPException(status_code=500, detail=job.error or "Analysis failed")
     if job.status != "completed":
@@ -220,10 +492,10 @@ async def job_result(job_id: str) -> dict[str, Any]:
 
 
 @app.delete("/api/v1/jobs/{job_id}")
-async def delete_job(job_id: str) -> dict[str, str]:
-    job = store.delete(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+async def delete_job(request: Request, job_id: str) -> dict[str, str]:
+    principal = _authorize_request(request)
+    job = _get_owned_job_or_404(job_id, principal)
+    store.delete(job_id)
     try:
         os.remove(job.file_path)
     except OSError:

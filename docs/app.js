@@ -10,11 +10,146 @@ const resultProbability = document.getElementById("result-probability");
 const resultConfidence = document.getElementById("result-confidence");
 const resultExplanation = document.getElementById("result-explanation");
 const resultSignals = document.getElementById("result-signals");
+const remoteApiUrlInput = document.getElementById("remote-api-url");
+const useRemoteApiInput = document.getElementById("use-remote-api");
+const generateSessionBtn = document.getElementById("generate-session-btn");
+const clearSessionBtn = document.getElementById("clear-session-btn");
+const sessionKeyDisplay = document.getElementById("session-key-display");
+const sessionKeyStatus = document.getElementById("session-key-status");
+const sessionQuotaStatus = document.getElementById("session-quota-status");
+const remoteError = document.getElementById("remote-error");
+
+const REMOTE_SESSION_PREFIX = "qvk.remote.session.";
+const FALLBACK_LIMIT = 10;
 
 function setProgress(percent, text) {
   progressCard.classList.remove("hidden");
   progressBar.style.width = `${Math.max(0, Math.min(100, percent))}%`;
   progressText.textContent = text;
+}
+
+function setRemoteError(message) {
+  if (!message) {
+    remoteError.textContent = "";
+    remoteError.classList.add("hidden");
+    return;
+  }
+  remoteError.textContent = message;
+  remoteError.classList.remove("hidden");
+}
+
+function normalizeBaseUrl(raw) {
+  return (raw || "").trim().replace(/\/+$/, "");
+}
+
+function sessionStorageKey(baseUrl) {
+  return `${REMOTE_SESSION_PREFIX}${baseUrl}`;
+}
+
+function loadRemoteSession(baseUrl) {
+  if (!baseUrl) return null;
+  try {
+    const raw = sessionStorage.getItem(sessionStorageKey(baseUrl));
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveRemoteSession(baseUrl, payload) {
+  if (!baseUrl) return;
+  sessionStorage.setItem(sessionStorageKey(baseUrl), JSON.stringify(payload));
+}
+
+function clearRemoteSession(baseUrl) {
+  if (!baseUrl) return;
+  sessionStorage.removeItem(sessionStorageKey(baseUrl));
+}
+
+function maskSessionKey(key) {
+  if (!key) return "";
+  if (key.length <= 14) return key;
+  return `${key.slice(0, 8)}...${key.slice(-6)}`;
+}
+
+function isSessionExpired(session) {
+  if (!session || !session.expiresAtMs) return true;
+  return Date.now() >= session.expiresAtMs;
+}
+
+function renderRemoteSessionState() {
+  const baseUrl = normalizeBaseUrl(remoteApiUrlInput.value);
+  const session = loadRemoteSession(baseUrl);
+  if (!session) {
+    sessionKeyDisplay.value = "";
+    sessionKeyStatus.textContent = "No active key. Click Generate Session Key.";
+    sessionQuotaStatus.textContent = "Generation limit: 10 keys per window.";
+    return;
+  }
+  const expired = isSessionExpired(session);
+  sessionKeyDisplay.value = maskSessionKey(session.sessionKey);
+  if (expired) {
+    sessionKeyStatus.textContent = "Session key expired. Generate a new one.";
+  } else {
+    sessionKeyStatus.textContent = `Active key expires at ${new Date(session.expiresAtMs).toLocaleString()}.`;
+  }
+  const quota = session.rateLimit || {};
+  const qLimit = quota.limit ?? FALLBACK_LIMIT;
+  const qRemaining = quota.remaining ?? "unknown";
+  const jobQuota = session.jobQuota || {};
+  const jobLimit = jobQuota.limit ?? FALLBACK_LIMIT;
+  const jobRemaining = jobQuota.remaining ?? "unknown";
+  sessionQuotaStatus.textContent = `Key generation: ${qRemaining}/${qLimit} remaining. Job quota on key: ${jobRemaining}/${jobLimit}.`;
+}
+
+async function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function generateRemoteSessionKey() {
+  setRemoteError("");
+  const baseUrl = normalizeBaseUrl(remoteApiUrlInput.value);
+  if (!baseUrl) throw new Error("Provide Remote API URL first.");
+  const response = await fetch(`${baseUrl}/api/v1/session-key`, { method: "POST" });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Session key generation failed: ${body}`);
+  }
+  const payload = await response.json();
+  const expiresMs = new Date(payload.expires_at_utc).getTime();
+  const record = {
+    sessionKey: payload.session_key,
+    expiresAtMs: Number.isFinite(expiresMs) ? expiresMs : Date.now() + 30 * 60 * 1000,
+    rateLimit: payload.rate_limit || { limit: FALLBACK_LIMIT, remaining: FALLBACK_LIMIT },
+    jobQuota: payload.job_quota || { limit: FALLBACK_LIMIT, remaining: FALLBACK_LIMIT }
+  };
+  saveRemoteSession(baseUrl, record);
+  renderRemoteSessionState();
+}
+
+function requireActiveRemoteSession(baseUrl) {
+  const session = loadRemoteSession(baseUrl);
+  if (!session || isSessionExpired(session)) {
+    throw new Error("Generate a new session key first.");
+  }
+  return session;
+}
+
+async function remoteFetch(baseUrl, path, init = {}) {
+  const session = requireActiveRemoteSession(baseUrl);
+  const headers = new Headers(init.headers || {});
+  headers.set("X-Session-Key", session.sessionKey);
+  const response = await fetch(`${baseUrl}${path}`, { ...init, headers });
+  if (response.status === 401) {
+    clearRemoteSession(baseUrl);
+    renderRemoteSessionState();
+    throw new Error("Session key invalid/expired. Generate a new one.");
+  }
+  if (response.status === 429) {
+    const body = await response.text();
+    throw new Error(`Rate limited: ${body}`);
+  }
+  return response;
 }
 
 function averageHash(gray, width, height) {
@@ -138,10 +273,6 @@ function sigmoid(x) {
   return 1 / (1 + Math.exp(-x));
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 function waitSeek(video, t) {
   return new Promise((resolve, reject) => {
     const onSeeked = () => {
@@ -190,8 +321,6 @@ async function analyzeInBrowser(file, options) {
   }
   if (!sampleTimes.length) sampleTimes.push(0);
 
-  const diffs = [];
-  const hashDistances = [];
   const blurs = [];
   const blockinessValues = [];
   const duplicateSegments = [];
@@ -217,15 +346,12 @@ async function analyzeInBrowser(file, options) {
     if (prevGray && prevHash) {
       const diff = meanAbsDiff(gray, prevGray);
       const hd = hammingBits(h, prevHash) / 64;
-      diffs.push(diff);
-      hashDistances.push(hd);
       if (hd < 0.06 && diff < 3.2) {
         if (duplicateRunStart === null) duplicateRunStart = sampleTimes[i - 1];
       } else if (duplicateRunStart !== null) {
         duplicateSegments.push({ start: duplicateRunStart, end: t, confidence: 0.86 });
         duplicateRunStart = null;
       }
-
       const observedDelta = t - prevTime;
       if (observedDelta > options.sampleInterval * 1.8) {
         missingSignals.push({
@@ -291,7 +417,7 @@ async function analyzeInBrowser(file, options) {
     confidence: Number(confidence.toFixed(4)),
     explanation: [
       "Browser mode detected frame-level continuity and quality signals.",
-      "Comprehensive metadata/packet/codec forensics require Remote API mode."
+      "Comprehensive metadata/packet/codec forensics require Remote API mode with a generated session key."
     ],
     signals: {
       file_name: file.name,
@@ -306,9 +432,7 @@ async function analyzeInBrowser(file, options) {
   };
 }
 
-async function createRemoteJob(file, options) {
-  const baseUrl = document.getElementById("remote-api-url").value.trim();
-  if (!baseUrl) throw new Error("Provide a Remote API URL first.");
+async function createRemoteJob(baseUrl, file, options) {
   const payload = {
     preset: "balanced",
     sample_fps: Number((1 / options.sampleInterval).toFixed(3)),
@@ -318,28 +442,32 @@ async function createRemoteJob(file, options) {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("options", JSON.stringify(payload));
-
-  const resp = await fetch(`${baseUrl.replace(/\/$/, "")}/api/v1/jobs`, {
-    method: "POST",
-    body: formData
-  });
+  const resp = await remoteFetch(baseUrl, "/api/v1/jobs", { method: "POST", body: formData });
   if (!resp.ok) {
     const body = await resp.text();
     throw new Error(`Remote job creation failed: ${body}`);
   }
-  return { baseUrl, job: await resp.json() };
+  const job = await resp.json();
+  const session = loadRemoteSession(baseUrl);
+  if (session && typeof job.session_key_remaining_jobs === "number") {
+    session.jobQuota = session.jobQuota || { limit: FALLBACK_LIMIT, remaining: FALLBACK_LIMIT };
+    session.jobQuota.remaining = job.session_key_remaining_jobs;
+    saveRemoteSession(baseUrl, session);
+    renderRemoteSessionState();
+  }
+  return job;
 }
 
 async function pollRemoteResult(baseUrl, jobId) {
   let attempts = 0;
   while (attempts < 900) {
     attempts += 1;
-    const statusResp = await fetch(`${baseUrl}/api/v1/jobs/${jobId}`);
+    const statusResp = await remoteFetch(baseUrl, `/api/v1/jobs/${jobId}`, { method: "GET" });
     if (!statusResp.ok) throw new Error("Remote status request failed.");
     const status = await statusResp.json();
     setProgress(status.progress_percent || 0, `Remote API: ${status.phase || status.status}`);
     if (status.status === "completed") {
-      const resultResp = await fetch(`${baseUrl}/api/v1/jobs/${jobId}/result`);
+      const resultResp = await remoteFetch(baseUrl, `/api/v1/jobs/${jobId}/result`, { method: "GET" });
       if (!resultResp.ok) throw new Error("Remote result request failed.");
       const resultPayload = await resultResp.json();
       const result = resultPayload.result || {};
@@ -381,12 +509,41 @@ function getOptions() {
     sampleInterval: Math.max(0.1, Math.min(5, Number(document.getElementById("sample-interval").value || "0.5"))),
     maxSamples: Math.max(10, Math.min(2000, Number(document.getElementById("max-samples").value || "240"))),
     sensitivity: Math.max(0.05, Math.min(0.99, Number(document.getElementById("sensitivity").value || "0.7"))),
-    useRemoteApi: document.getElementById("use-remote-api").checked
+    useRemoteApi: useRemoteApiInput.checked
   };
 }
 
+generateSessionBtn.addEventListener("click", async () => {
+  generateSessionBtn.disabled = true;
+  setRemoteError("");
+  try {
+    await generateRemoteSessionKey();
+  } catch (error) {
+    setRemoteError(error.message);
+  } finally {
+    generateSessionBtn.disabled = false;
+  }
+});
+
+clearSessionBtn.addEventListener("click", () => {
+  const baseUrl = normalizeBaseUrl(remoteApiUrlInput.value);
+  clearRemoteSession(baseUrl);
+  renderRemoteSessionState();
+});
+
+remoteApiUrlInput.addEventListener("change", () => {
+  setRemoteError("");
+  renderRemoteSessionState();
+});
+
+useRemoteApiInput.addEventListener("change", () => {
+  setRemoteError("");
+  renderRemoteSessionState();
+});
+
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
+  setRemoteError("");
   const fileInput = document.getElementById("video-file");
   const file = fileInput.files && fileInput.files[0];
   if (!file) {
@@ -401,8 +558,11 @@ form.addEventListener("submit", async (event) => {
     const options = getOptions();
     let report;
     if (options.useRemoteApi) {
+      const baseUrl = normalizeBaseUrl(remoteApiUrlInput.value);
+      if (!baseUrl) throw new Error("Provide Remote API URL first.");
+      requireActiveRemoteSession(baseUrl);
       setProgress(10, "Creating remote job");
-      const { baseUrl, job } = await createRemoteJob(file, options);
+      const job = await createRemoteJob(baseUrl, file, options);
       report = await pollRemoteResult(baseUrl, job.job_id);
     } else {
       report = await analyzeInBrowser(file, options);
@@ -410,8 +570,11 @@ form.addEventListener("submit", async (event) => {
     }
     renderResult(report);
   } catch (error) {
+    setRemoteError(error.message);
     alert(`Error: ${error.message}`);
   } finally {
     analyzeBtn.disabled = false;
   }
 });
+
+renderRemoteSessionState();

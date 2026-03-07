@@ -45,6 +45,17 @@
               <input id="remote-api-url" type="url" placeholder="https://your-api.example.com">
             </label>
             <label><input id="use-remote-api" type="checkbox"> Use Remote API for full scan</label>
+            <div class="field key-controls">
+              <span>Remote session key (ephemeral)</span>
+              <div class="inline-actions">
+                <button id="generate-session-btn" type="button">Generate Session Key</button>
+                <button id="clear-session-btn" type="button" class="secondary">Clear Key</button>
+              </div>
+              <input id="session-key-display" type="text" readonly placeholder="No session key yet">
+              <small id="session-key-status" class="muted">Generate a key before Remote API analysis.</small>
+              <small id="session-quota-status" class="muted">Generation limit: 10 keys per window.</small>
+              <small id="remote-error" class="error hidden"></small>
+            </div>
           </div>
         </details>
 
