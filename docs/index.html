@@ -70,15 +70,40 @@
     </section>
 
     <section id="result-card" class="card hidden">
-      <h2>Result</h2>
+      <h2>Graphical report</h2>
       <p><strong>Mode:</strong> <span id="result-mode"></span></p>
-      <p><strong>Verdict:</strong> <span id="result-label"></span></p>
-      <p><strong>Tamper probability:</strong> <span id="result-probability"></span></p>
-      <p><strong>Confidence:</strong> <span id="result-confidence"></span></p>
-      <h3>Why</h3>
+      <div class="report-badge-wrap">
+        <span id="result-label" class="verdict-badge">INCONCLUSIVE</span>
+        <p id="result-meaning" class="muted"></p>
+      </div>
+      <div class="metric-grid">
+        <div class="metric-card">
+          <p>Tamper probability</p>
+          <h3 id="result-probability"></h3>
+        </div>
+        <div class="metric-card">
+          <p>Confidence</p>
+          <h3 id="result-confidence"></h3>
+        </div>
+        <div class="metric-card">
+          <p>Estimated duration</p>
+          <h3 id="result-duration"></h3>
+        </div>
+      </div>
+      <div class="meter-track"><div id="result-meter" class="meter-fill"></div></div>
+
+      <h3>Why this decision was made</h3>
       <ul id="result-explanation"></ul>
-      <h3>Signals</h3>
-      <pre id="result-signals"></pre>
+      <h3>Evidence strength by check</h3>
+      <div id="result-check-bars" class="check-bars"></div>
+      <h3>Timeline of suspicious segments</h3>
+      <div id="result-timeline" class="timeline-track"></div>
+      <ul id="result-segments"></ul>
+      <button id="download-report-btn" type="button">Download graphical HTML report</button>
+      <details class="advanced">
+        <summary>Raw technical JSON (advanced)</summary>
+        <pre id="result-signals"></pre>
+      </details>
     </section>
   </main>
 

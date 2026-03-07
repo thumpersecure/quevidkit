@@ -135,3 +135,122 @@ button.secondary {
   padding: 10px;
   border-radius: 8px;
 }
+
+.report-badge-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.verdict-badge {
+  display: inline-block;
+  border-radius: 18px;
+  padding: 6px 12px;
+  color: #fff;
+  font-weight: 700;
+  background: #555;
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(130px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.metric-card {
+  border: 1px solid #dfe2ea;
+  border-radius: 8px;
+  padding: 10px;
+  background: #fbfcff;
+}
+
+.metric-card p {
+  margin: 0;
+  color: #4e5361;
+  font-size: 0.85rem;
+}
+
+.metric-card h3 {
+  margin: 6px 0 0;
+}
+
+.meter-track {
+  width: 100%;
+  height: 14px;
+  border-radius: 20px;
+  background: #e5e7ef;
+  margin-top: 10px;
+  overflow: hidden;
+}
+
+.meter-fill {
+  width: 0%;
+  height: 14px;
+  border-radius: 20px;
+  background: linear-gradient(90deg, #1f7a1f 0%, #cc6600 60%, #b00020 100%);
+}
+
+.check-bars {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.check-item {
+  border: 1px solid #e3e4ea;
+  border-radius: 8px;
+  background: #fff;
+  padding: 10px;
+}
+
+.check-item h4 {
+  margin: 0 0 6px;
+}
+
+.bar-row {
+  display: grid;
+  grid-template-columns: 120px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  font-size: 0.86rem;
+  margin-bottom: 6px;
+}
+
+.bar-track {
+  height: 10px;
+  border-radius: 20px;
+  background: #eceef5;
+  overflow: hidden;
+}
+
+.bar-fill-score {
+  height: 10px;
+  background: #b00020;
+}
+
+.bar-fill-confidence {
+  height: 10px;
+  background: #1a4fd8;
+}
+
+.timeline-track {
+  position: relative;
+  width: 100%;
+  min-height: 30px;
+  border: 1px solid #dfe2eb;
+  border-radius: 8px;
+  background: #edf1fb;
+  margin-bottom: 8px;
+}
+
+.timeline-block {
+  position: absolute;
+  top: 3px;
+  height: 24px;
+  border-radius: 6px;
+  background: #b00020;
+  opacity: 0.75;
+}
