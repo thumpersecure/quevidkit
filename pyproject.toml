@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quevidkit"
+version = "0.1.0"
+description = "Forensic video tampering detection toolkit with web UI"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+  {name = "quevidkit contributors"}
+]
+dependencies = [
+  "fastapi",
+  "uvicorn",
+  "python-multipart",
+  "jinja2",
+  "numpy",
+  "opencv-python",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+]
+
+[project.scripts]
+qvk = "quevidkit.cli:main"
+qvk-web = "quevidkit.webapp:run"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+quevidkit = ["templates/*.html", "static/*.css", "static/*.js"]

@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>quevidkit forensic video tool</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <main class="container">
+    <section class="card">
+      <h1>Forensic Video Tampering Detector</h1>
+      <p class="muted">
+        Upload a video to evaluate whether it was altered. The engine checks metadata, codec/container structure,
+        file size relationships, frame timing, missing/duplicate frames, and quality shifts.
+      </p>
+
+      <form id="upload-form">
+        <label class="field">
+          <span>Video file</span>
+          <input id="video-file" type="file" accept="video/*" required>
+        </label>
+
+        <label class="field">
+          <span>Preset</span>
+          <select id="preset">
+            <option value="fast">Fast</option>
+            <option value="balanced" selected>Balanced</option>
+            <option value="deep">Deep</option>
+          </select>
+        </label>
+
+        <details class="advanced">
+          <summary>Advanced options</summary>
+          <div class="advanced-grid">
+            <label class="field">
+              <span>Sample FPS</span>
+              <input id="sample-fps" type="number" min="0.2" max="30" step="0.1" value="2.0">
+            </label>
+            <label class="field">
+              <span>Max sampled frames</span>
+              <input id="max-frames" type="number" min="60" max="100000" step="1" value="2000">
+            </label>
+            <label class="field">
+              <span>Sensitivity (0-1)</span>
+              <input id="sensitivity" type="number" min="0.05" max="0.99" step="0.01" value="0.7">
+            </label>
+            <label><input id="metadata-scan" type="checkbox" checked> Metadata/codec scan</label>
+            <label><input id="packet-scan" type="checkbox" checked> Packet timing scan</label>
+            <label><input id="frame-scan" type="checkbox" checked> Frame structure scan</label>
+            <label><input id="quality-scan" type="checkbox" checked> Quality shift scan</label>
+            <label><input id="debug-payload" type="checkbox"> Include heavy debug payload</label>
+          </div>
+        </details>
+
+        <button id="analyze-btn" type="submit">Analyze video</button>
+      </form>
+    </section>
+
+    <section id="progress-card" class="card hidden">
+      <h2>Progress</h2>
+      <p id="progress-text">Queued</p>
+      <div class="progress-track"><div id="progress-bar" class="progress-bar"></div></div>
+    </section>
+
+    <section id="result-card" class="card hidden">
+      <h2>Result</h2>
+      <p><strong>Verdict:</strong> <span id="verdict"></span></p>
+      <p><strong>Tamper probability:</strong> <span id="probability"></span></p>
+      <p><strong>Confidence:</strong> <span id="confidence"></span></p>
+      <h3>Explanation</h3>
+      <ul id="explanation-list"></ul>
+      <h3>Top suspicious segments</h3>
+      <ul id="segment-list"></ul>
+      <h3>Check summary</h3>
+      <pre id="checks-json"></pre>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
