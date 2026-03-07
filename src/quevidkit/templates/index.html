@@ -64,16 +64,45 @@
     </section>
 
     <section id="result-card" class="card hidden">
-      <h2>Result</h2>
-      <p><strong>Verdict:</strong> <span id="verdict"></span></p>
-      <p><strong>Tamper probability:</strong> <span id="probability"></span></p>
-      <p><strong>Confidence:</strong> <span id="confidence"></span></p>
-      <h3>Explanation</h3>
+      <h2>Graphical report</h2>
+      <div class="report-overview">
+        <div class="report-badge-wrap">
+          <span id="verdict" class="verdict-badge">INCONCLUSIVE</span>
+          <p id="plain-meaning" class="muted"></p>
+        </div>
+        <div class="metric-grid">
+          <div class="metric-card">
+            <p>Tamper probability</p>
+            <h3 id="probability">0%</h3>
+          </div>
+          <div class="metric-card">
+            <p>Confidence</p>
+            <h3 id="confidence">0%</h3>
+          </div>
+          <div class="metric-card">
+            <p>Video duration</p>
+            <h3 id="duration">0s</h3>
+          </div>
+        </div>
+        <div class="meter-track"><div id="risk-meter" class="meter-fill"></div></div>
+      </div>
+
+      <h3>What this means</h3>
       <ul id="explanation-list"></ul>
-      <h3>Top suspicious segments</h3>
+
+      <h3>Evidence strength by forensic check</h3>
+      <div id="check-bars" class="check-bars"></div>
+
+      <h3>Timeline of suspicious moments</h3>
+      <div id="timeline-track" class="timeline-track"></div>
       <ul id="segment-list"></ul>
-      <h3>Check summary</h3>
-      <pre id="checks-json"></pre>
+
+      <button id="download-report-btn" type="button">Download graphical HTML report</button>
+
+      <details class="advanced">
+        <summary>Raw technical JSON (advanced)</summary>
+        <pre id="checks-json"></pre>
+      </details>
     </section>
   </main>
 

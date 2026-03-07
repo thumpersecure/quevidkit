@@ -71,6 +71,12 @@ Useful flags:
 - Progress + status polling.
 - Verdict + probability + confidence.
 - Human-readable explanation.
+- **Graphical report from JSON findings**:
+  - risk meter
+  - per-check evidence bars (score + confidence)
+  - suspicious-segment timeline
+  - plain-language explanations
+  - downloadable HTML report for sharing
 - Advanced section for coders:
   - preset
   - sample fps
@@ -94,6 +100,7 @@ It supports:
 - **Browser mode** (no backend): client-side frame continuity/quality checks.
 - **Remote API mode** (optional): sends upload to your FastAPI backend for full forensic analysis.
 - **Session key generation button**: creates per-user, per-session keys (no hardcoded API keys in repo).
+- **Graphical non-JSON report view** for non-technical users, with downloadable HTML output.
 
 To enable GitHub Pages:
 

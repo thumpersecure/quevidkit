@@ -6,10 +6,17 @@ const progressBar = document.getElementById("progress-bar");
 const resultCard = document.getElementById("result-card");
 const resultMode = document.getElementById("result-mode");
 const resultLabel = document.getElementById("result-label");
+const resultMeaning = document.getElementById("result-meaning");
 const resultProbability = document.getElementById("result-probability");
 const resultConfidence = document.getElementById("result-confidence");
+const resultDuration = document.getElementById("result-duration");
+const resultMeter = document.getElementById("result-meter");
 const resultExplanation = document.getElementById("result-explanation");
+const resultCheckBars = document.getElementById("result-check-bars");
+const resultTimeline = document.getElementById("result-timeline");
+const resultSegments = document.getElementById("result-segments");
 const resultSignals = document.getElementById("result-signals");
+const downloadReportBtn = document.getElementById("download-report-btn");
 const remoteApiUrlInput = document.getElementById("remote-api-url");
 const useRemoteApiInput = document.getElementById("use-remote-api");
 const generateSessionBtn = document.getElementById("generate-session-btn");
@@ -21,6 +28,7 @@ const remoteError = document.getElementById("remote-error");
 
 const REMOTE_SESSION_PREFIX = "qvk.remote.session.";
 const FALLBACK_LIMIT = 10;
+let latestReport = null;
 
 function setProgress(percent, text) {
   progressCard.classList.remove("hidden");
@@ -36,6 +44,186 @@ function setRemoteError(message) {
   }
   remoteError.textContent = message;
   remoteError.classList.remove("hidden");
+}
+
+function verdictColor(label) {
+  if (label === "tampered") return "#b00020";
+  if (label === "suspicious") return "#cc6600";
+  if (label === "authentic") return "#1f7a1f";
+  return "#555";
+}
+
+function plainMeaning(label, probability, confidence) {
+  if (label === "tampered") {
+    return `Strong manipulation indicators were detected (${(probability * 100).toFixed(1)}% probability, ${(confidence * 100).toFixed(1)}% confidence).`;
+  }
+  if (label === "suspicious") {
+    return `Some forensic signals are unusual (${(probability * 100).toFixed(1)}% probability). Manual review recommended.`;
+  }
+  if (label === "authentic") {
+    return `No strong manipulation pattern was detected (${(probability * 100).toFixed(1)}% probability).`;
+  }
+  return "The evidence quality was not high enough for a definitive conclusion.";
+}
+
+function explainCheck(check) {
+  const map = {
+    metadata_codec_consistency: "Compares metadata and stream declarations for consistency.",
+    packet_timing_anomalies: "Checks packet timeline continuity for jumps and timestamp inconsistencies.",
+    frame_structure_anomalies: "Checks frame/GOP structure for unusual transitions across the clip.",
+    frame_quality_shift: "Measures abrupt visual quality changes and continuity behavior."
+  };
+  return map[check.name] || "This detector contributes to overall forensic risk scoring.";
+}
+
+function normalizeChecks(report) {
+  if (report?.signals?.checks && Array.isArray(report.signals.checks) && report.signals.checks.length) {
+    return report.signals.checks;
+  }
+  const signals = report.signals || {};
+  const derived = [];
+  const duplicateCount = (signals.duplicate_events || []).length;
+  const missingCount = (signals.missing_frame_events || []).length;
+  const qualityCount = (signals.quality_shift_events || []).length;
+  if (duplicateCount || missingCount || qualityCount) {
+    derived.push({
+      name: "browser_temporal_continuity",
+      score: Math.max(0, Math.min(1, (duplicateCount + missingCount + qualityCount) / Math.max(1, signals.sampled_points || 1) * 8)),
+      confidence: report.confidence || 0.5,
+      summary: "Derived from duplicate/missing/quality events in browser analysis."
+    });
+  }
+  return derived;
+}
+
+function normalizeSegments(report) {
+  if (report?.signals?.suspicious_segments && Array.isArray(report.signals.suspicious_segments)) {
+    return report.signals.suspicious_segments;
+  }
+  const signals = report.signals || {};
+  const merge = (arr, category) => (arr || []).map((item) => ({
+    category,
+    start_s: Number(item.start || 0),
+    end_s: Number(item.end || item.start || 0),
+    confidence: Number(item.confidence || 0.5)
+  }));
+  return [
+    ...merge(signals.duplicate_events, "duplicate_frames"),
+    ...merge(signals.missing_frame_events, "missing_frames"),
+    ...merge(signals.quality_shift_events, "quality_shift")
+  ];
+}
+
+function renderCheckBars(report) {
+  resultCheckBars.innerHTML = "";
+  const checks = normalizeChecks(report);
+  if (!checks.length) {
+    resultCheckBars.innerHTML = "<p class='muted'>No check-level details available.</p>";
+    return;
+  }
+  checks.forEach((check) => {
+    const score = Math.max(0, Math.min(100, (check.score || 0) * 100));
+    const conf = Math.max(0, Math.min(100, (check.confidence || 0) * 100));
+    const card = document.createElement("div");
+    card.className = "check-item";
+    card.innerHTML = `
+      <h4>${check.name}</h4>
+      <p class="muted">${explainCheck(check)}</p>
+      <div class="bar-row">
+        <span>Anomaly score</span>
+        <div class="bar-track"><div class="bar-fill-score" style="width:${score.toFixed(1)}%"></div></div>
+        <strong>${score.toFixed(1)}%</strong>
+      </div>
+      <div class="bar-row">
+        <span>Confidence</span>
+        <div class="bar-track"><div class="bar-fill-confidence" style="width:${conf.toFixed(1)}%"></div></div>
+        <strong>${conf.toFixed(1)}%</strong>
+      </div>
+      <p>${check.summary || ""}</p>
+    `;
+    resultCheckBars.appendChild(card);
+  });
+}
+
+function renderTimeline(report) {
+  const segments = normalizeSegments(report).slice(0, 60);
+  resultSegments.innerHTML = "";
+  const duration = Math.max(
+    Number(report?.signals?.video_duration_s || 0),
+    ...segments.map((segment) => Number(segment.end_s || 0)),
+    1
+  );
+  if (!segments.length) {
+    resultTimeline.innerHTML = "<p class='muted' style='padding:6px 10px;'>No suspicious segments detected.</p>";
+    const li = document.createElement("li");
+    li.textContent = "No suspicious timeline windows were identified in this analysis mode.";
+    resultSegments.appendChild(li);
+    return;
+  }
+  const blocks = segments.map((segment) => {
+    const start = Math.max(0, Math.min(100, (segment.start_s / duration) * 100));
+    const end = Math.max(start, Math.min(100, (segment.end_s / duration) * 100));
+    const width = Math.max(0.4, end - start);
+    const title = `[${segment.category}] ${segment.start_s.toFixed(2)}s-${segment.end_s.toFixed(2)}s (confidence ${segment.confidence.toFixed(2)})`;
+    return `<div class="timeline-block" style="left:${start.toFixed(2)}%;width:${width.toFixed(2)}%" title="${title}"></div>`;
+  }).join("");
+  resultTimeline.innerHTML = blocks;
+
+  segments.forEach((segment) => {
+    const li = document.createElement("li");
+    li.textContent = `[${segment.category}] ${segment.start_s.toFixed(2)}s - ${segment.end_s.toFixed(2)}s (confidence ${segment.confidence.toFixed(2)}).`;
+    resultSegments.appendChild(li);
+  });
+}
+
+function buildGraphicalReportHtml(report) {
+  const checks = normalizeChecks(report);
+  const segments = normalizeSegments(report);
+  const checksHtml = checks.map((check) => {
+    const score = Math.max(0, Math.min(100, (check.score || 0) * 100));
+    const conf = Math.max(0, Math.min(100, (check.confidence || 0) * 100));
+    return `
+      <div class="check">
+        <h3>${check.name}</h3>
+        <p>${explainCheck(check)}</p>
+        <div class="bar"><div class="fill score" style="width:${score.toFixed(1)}%"></div></div>
+        <p><strong>Anomaly score:</strong> ${score.toFixed(1)}%</p>
+        <div class="bar"><div class="fill conf" style="width:${conf.toFixed(1)}%"></div></div>
+        <p><strong>Confidence:</strong> ${conf.toFixed(1)}%</p>
+        <p>${check.summary || ""}</p>
+      </div>`;
+  }).join("");
+  const explanation = (report.explanation || []).map((line) => `<li>${line}</li>`).join("");
+  const segmentsHtml = segments.slice(0, 30).map(
+    (segment) => `<li>[${segment.category}] ${segment.start_s.toFixed(2)}s - ${segment.end_s.toFixed(2)}s (confidence ${segment.confidence.toFixed(2)})</li>`
+  ).join("");
+  const probability = Math.max(0, Math.min(100, (report.tamper_probability || 0) * 100));
+  return `<!doctype html>
+<html><head><meta charset="utf-8"><title>quevidkit graphical report</title>
+<style>
+body{font-family:Arial,sans-serif;background:#f5f6fa;color:#111;margin:20px}
+.card{background:#fff;border:1px solid #e2e2e8;border-radius:8px;padding:14px;margin-bottom:12px}
+.badge{display:inline-block;padding:6px 12px;border-radius:16px;color:#fff;background:${verdictColor(report.label)};font-weight:700}
+.meter{height:14px;border-radius:20px;background:#e8ebf3;overflow:hidden;margin-top:8px}
+.meter>div{height:14px;width:${probability.toFixed(1)}%;background:linear-gradient(90deg,#1f7a1f 0%,#cc6600 60%,#b00020 100%)}
+.checks{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px}
+.check{border:1px solid #e4e6ee;border-radius:8px;padding:10px}
+.bar{height:10px;border-radius:20px;background:#eceff6;overflow:hidden}
+.fill{height:10px}.score{background:#b00020}.conf{background:#1a4fd8}
+</style></head><body>
+<h1>quevidkit graphical forensic report</h1>
+<div class="card">
+  <p><strong>Mode:</strong> ${report.mode || "unknown"}</p>
+  <span class="badge">${String(report.label || "inconclusive").toUpperCase()}</span>
+  <p>${plainMeaning(report.label, report.tamper_probability || 0, report.confidence || 0)}</p>
+  <p><strong>Tamper probability:</strong> ${probability.toFixed(1)}%</p>
+  <p><strong>Confidence:</strong> ${((report.confidence || 0) * 100).toFixed(1)}%</p>
+  <div class="meter"><div></div></div>
+</div>
+<div class="card"><h2>Plain-language explanation</h2><ul>${explanation || "<li>No explanation available.</li>"}</ul></div>
+<div class="card"><h2>Evidence checks</h2><div class="checks">${checksHtml || "<p>No check data.</p>"}</div></div>
+<div class="card"><h2>Suspicious segments</h2><ul>${segmentsHtml || "<li>None</li>"}</ul></div>
+</body></html>`;
 }
 
 function normalizeBaseUrl(raw) {
@@ -490,17 +678,29 @@ async function pollRemoteResult(baseUrl, jobId) {
 }
 
 function renderResult(report) {
+  latestReport = report;
   resultCard.classList.remove("hidden");
   resultMode.textContent = report.mode;
-  resultLabel.textContent = (report.label || "inconclusive").toUpperCase();
-  resultProbability.textContent = `${((report.tamper_probability || 0) * 100).toFixed(1)}%`;
-  resultConfidence.textContent = `${((report.confidence || 0) * 100).toFixed(1)}%`;
+  const label = report.label || "inconclusive";
+  const probability = report.tamper_probability || 0;
+  const confidence = report.confidence || 0;
+  const segments = normalizeSegments(report);
+  const duration = Math.max(Number(report?.signals?.video_duration_s || 0), ...segments.map((segment) => Number(segment.end_s || 0)), 0);
+  resultLabel.textContent = label.toUpperCase();
+  resultLabel.style.background = verdictColor(label);
+  resultMeaning.textContent = plainMeaning(label, probability, confidence);
+  resultProbability.textContent = `${(probability * 100).toFixed(1)}%`;
+  resultConfidence.textContent = `${(confidence * 100).toFixed(1)}%`;
+  resultDuration.textContent = `${duration.toFixed(2)}s`;
+  resultMeter.style.width = `${(probability * 100).toFixed(1)}%`;
   resultExplanation.innerHTML = "";
   (report.explanation || []).forEach((line) => {
     const li = document.createElement("li");
     li.textContent = line;
     resultExplanation.appendChild(li);
   });
+  renderCheckBars(report);
+  renderTimeline(report);
   resultSignals.textContent = JSON.stringify(report.signals || {}, null, 2);
 }
 
@@ -575,6 +775,23 @@ form.addEventListener("submit", async (event) => {
   } finally {
     analyzeBtn.disabled = false;
   }
+});
+
+downloadReportBtn.addEventListener("click", () => {
+  if (!latestReport) {
+    alert("Run an analysis first.");
+    return;
+  }
+  const htmlReport = buildGraphicalReportHtml(latestReport);
+  const blob = new Blob([htmlReport], { type: "text/html" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `quevidkit_graphical_report_${Date.now()}.html`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 });
 
 renderRemoteSessionState();
