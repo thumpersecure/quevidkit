@@ -38,6 +38,8 @@ let latestReport = null;
 let preferredAnalyzeMode = "browser";
 let revealSessionKey = false;
 
+// ── UI utilities ────────────────────────────────────────────────────────────
+
 function setAnalyzeButtonsDisabled(disabled) {
   analyzeBrowserBtn.disabled = disabled;
   analyzeRemoteBtn.disabled = disabled;
@@ -68,17 +70,68 @@ function verdictColor(label) {
   return "#6f7d97";
 }
 
+function isCorsLikeError(error, url) {
+  if (!(error instanceof TypeError)) return false;
+  if (!url) return false;
+  const msg = error.message || "";
+  return msg.includes("fetch") || msg.includes("network") || msg.includes("Failed");
+}
+
+// ── Humanization helpers ────────────────────────────────────────────────────
+
+function humanizeCheckName(name) {
+  const map = {
+    metadata_codec_consistency: "Metadata consistency",
+    packet_timing_anomalies: "Packet timing",
+    frame_structure_anomalies: "Frame structure",
+    frame_quality_shift: "Visual quality shifts",
+    browser_temporal_continuity: "Frame continuity (browser)"
+  };
+  return map[name] || (name || "").replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function humanizeCategory(cat) {
+  const map = {
+    duplicate_frames: "Duplicate frames",
+    missing_frames: "Missing frames",
+    quality_shift: "Quality shift"
+  };
+  return map[cat] || (cat || "").replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function humanizePhase(phase) {
+  const map = {
+    queued: "Waiting for server...",
+    extracting_metadata: "Reading video metadata...",
+    forensic_analysis: "Running forensic analysis...",
+    done: "Analysis complete!",
+    completed: "Analysis complete!",
+    failed: "Analysis failed"
+  };
+  return map[phase] || (phase ? phase.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Processing...");
+}
+
+function humanizeMode(mode) {
+  if (mode === "browser") return "Browser (quick check)";
+  if (mode === "remote_api") return "Server (deep scan)";
+  return mode || "unknown";
+}
+
+// ── Result text helpers ─────────────────────────────────────────────────────
+
 function plainMeaning(label, probability, confidence) {
+  const probPct = (probability * 100).toFixed(1);
+  const confPct = (confidence * 100).toFixed(1);
   if (label === "tampered") {
-    return `Strong manipulation indicators were detected (${(probability * 100).toFixed(1)}% probability, ${(confidence * 100).toFixed(1)}% confidence).`;
-  }
-  if (label === "suspicious") {
-    return `Some forensic signals are unusual (${(probability * 100).toFixed(1)}% probability). Manual review recommended.`;
+    return `Our analysis found strong signs that this video may have been edited or manipulated. Probability: ${probPct}%, Confidence: ${confPct}%.`;
   }
   if (label === "authentic") {
-    return `No strong manipulation pattern was detected (${(probability * 100).toFixed(1)}% probability).`;
+    return `No significant manipulation was detected in this video. Probability: ${probPct}%, Confidence: ${confPct}%.`;
   }
-  return "The evidence quality was not high enough for a definitive conclusion.";
+  if (label === "suspicious") {
+    return `Some unusual patterns were detected that warrant further review. Probability: ${probPct}%.`;
+  }
+  return "The video could not be assessed with sufficient confidence. Try using the deep server scan for more detailed analysis.";
 }
 
 function explainCheck(check) {
@@ -129,6 +182,8 @@ function normalizeSegments(report) {
   ];
 }
 
+// ── Render functions ────────────────────────────────────────────────────────
+
 function renderCheckBars(report) {
   resultCheckBars.innerHTML = "";
   const checks = normalizeChecks(report);
@@ -142,7 +197,7 @@ function renderCheckBars(report) {
     const card = document.createElement("div");
     card.className = "check-item";
     card.innerHTML = `
-      <h4>${check.name}</h4>
+      <h4>${humanizeCheckName(check.name)}</h4>
       <p class="muted">${explainCheck(check)}</p>
       <div class="bar-row">
         <span>Anomaly score</span>
@@ -179,14 +234,15 @@ function renderTimeline(report) {
     const start = Math.max(0, Math.min(100, (segment.start_s / duration) * 100));
     const end = Math.max(start, Math.min(100, (segment.end_s / duration) * 100));
     const width = Math.max(0.4, end - start);
-    const title = `[${segment.category}] ${segment.start_s.toFixed(2)}s-${segment.end_s.toFixed(2)}s (confidence ${segment.confidence.toFixed(2)})`;
+    const catLabel = humanizeCategory(segment.category);
+    const title = `[${catLabel}] ${segment.start_s.toFixed(2)}s-${segment.end_s.toFixed(2)}s (confidence ${segment.confidence.toFixed(2)})`;
     return `<div class="timeline-block" style="left:${start.toFixed(2)}%;width:${width.toFixed(2)}%" title="${title}"></div>`;
   }).join("");
   resultTimeline.innerHTML = blocks;
 
   segments.forEach((segment) => {
     const li = document.createElement("li");
-    li.textContent = `[${segment.category}] ${segment.start_s.toFixed(2)}s - ${segment.end_s.toFixed(2)}s (confidence ${segment.confidence.toFixed(2)}).`;
+    li.textContent = `[${humanizeCategory(segment.category)}] ${segment.start_s.toFixed(2)}s - ${segment.end_s.toFixed(2)}s (confidence ${segment.confidence.toFixed(2)}).`;
     resultSegments.appendChild(li);
   });
 }
@@ -199,7 +255,7 @@ function buildGraphicalReportHtml(report) {
     const conf = Math.max(0, Math.min(100, (check.confidence || 0) * 100));
     return `
       <div class="check">
-        <h3>${check.name}</h3>
+        <h3>${humanizeCheckName(check.name)}</h3>
         <p>${explainCheck(check)}</p>
         <div class="bar"><div class="fill score" style="width:${score.toFixed(1)}%"></div></div>
         <p><strong>Anomaly score:</strong> ${score.toFixed(1)}%</p>
@@ -210,7 +266,7 @@ function buildGraphicalReportHtml(report) {
   }).join("");
   const explanation = (report.explanation || []).map((line) => `<li>${line}</li>`).join("");
   const segmentsHtml = segments.slice(0, 30).map(
-    (segment) => `<li>[${segment.category}] ${segment.start_s.toFixed(2)}s - ${segment.end_s.toFixed(2)}s (confidence ${segment.confidence.toFixed(2)})</li>`
+    (segment) => `<li>[${humanizeCategory(segment.category)}] ${segment.start_s.toFixed(2)}s - ${segment.end_s.toFixed(2)}s (confidence ${segment.confidence.toFixed(2)})</li>`
   ).join("");
   const probability = Math.max(0, Math.min(100, (report.tamper_probability || 0) * 100));
   return `<!doctype html>
@@ -235,7 +291,7 @@ ul{padding-left:20px}
 <div class="card">
   <p class="eyebrow">Case file / graphical forensic report</p>
   <h1>quevidkit investigation summary</h1>
-  <p><strong>Mode:</strong> ${report.mode || "unknown"}</p>
+  <p><strong>Mode:</strong> ${humanizeMode(report.mode)}</p>
   <span class="badge">${String(report.label || "inconclusive").toUpperCase()}</span>
   <p>${plainMeaning(report.label, report.tamper_probability || 0, report.confidence || 0)}</p>
   <p><strong>Tamper probability:</strong> ${probability.toFixed(1)}%</p>
@@ -249,10 +305,12 @@ ul{padding-left:20px}
 </body></html>`;
 }
 
+// ── URL parsing ─────────────────────────────────────────────────────────────
+
 function parseRemoteBaseUrl(raw) {
   const value = (raw || "").trim();
   if (!value) {
-    return { baseUrl: "", error: "Enter your FastAPI base URL." };
+    return { baseUrl: "", error: "Enter your server base URL." };
   }
   let parsed;
   try {
@@ -291,6 +349,8 @@ function inferLocalFastapiUrl() {
   return "";
 }
 
+// ── Mode and UI state ───────────────────────────────────────────────────────
+
 function setAnalyzeMode(mode) {
   preferredAnalyzeMode = mode === "remote" ? "remote" : "browser";
   analyzeBrowserBtn.classList.toggle("is-selected", preferredAnalyzeMode === "browser");
@@ -305,9 +365,9 @@ function setRemoteModePill(text, tone = "") {
 function updateRemoteUrlHelper() {
   const { baseUrl, error } = parseRemoteBaseUrl(remoteApiUrlInput.value);
   if (!baseUrl) {
-    remoteEndpointPreview.textContent = "Session key endpoint preview will appear here.";
+    remoteEndpointPreview.textContent = "";
   } else {
-    remoteEndpointPreview.textContent = `Key generator endpoint: ${sessionKeyEndpoint(baseUrl)}`;
+    remoteEndpointPreview.textContent = `Will connect to: ${sessionKeyEndpoint(baseUrl)}`;
   }
   if (baseUrl && !error) {
     localStorage.setItem(REMOTE_BASE_URL_STORAGE_KEY, baseUrl);
@@ -319,6 +379,8 @@ function updateRemoteUrlHelper() {
     setRemoteError("");
   }
 }
+
+// ── Session management ──────────────────────────────────────────────────────
 
 function sessionStorageKey(baseUrl) {
   return `${REMOTE_SESSION_PREFIX}${baseUrl}`;
@@ -359,57 +421,58 @@ function renderRemoteSessionState() {
   const { baseUrl, error } = parseRemoteBaseUrl(remoteApiUrlInput.value);
   if (!baseUrl) {
     sessionKeyDisplay.value = "";
-    sessionKeyStatus.textContent = "No active key. Enter a FastAPI URL first.";
-    sessionQuotaStatus.textContent = error || "Generation limit: 10 keys per window.";
-    generateSessionBtn.textContent = "Get Working Key";
+    sessionKeyStatus.textContent = "Not connected. Enter a server URL to enable deep scan mode.";
+    sessionQuotaStatus.textContent = `Up to ${FALLBACK_LIMIT} scans available per session.`;
+    generateSessionBtn.textContent = "Connect";
     copySessionBtn.disabled = true;
     revealSessionBtn.disabled = true;
     revealSessionBtn.textContent = "Reveal Key";
     if (preferredAnalyzeMode === "remote") {
-      setRemoteModePill("Remote URL needed", "attention");
+      setRemoteModePill("Enter server address", "attention");
     } else {
-      setRemoteModePill("Browser triage ready");
+      setRemoteModePill("Browser mode");
     }
     return;
   }
   const session = loadRemoteSession(baseUrl);
   if (!session) {
     sessionKeyDisplay.value = "";
-    sessionKeyStatus.textContent = `No active key for ${baseUrl}. Click Get Working Key or run a remote scan and one will be requested automatically.`;
-    sessionQuotaStatus.textContent = "Generation limit: 10 keys per window.";
-    generateSessionBtn.textContent = "Get Working Key";
+    sessionKeyStatus.textContent = "Not connected. Click 'Server scan' to connect automatically.";
+    sessionQuotaStatus.textContent = `Up to ${FALLBACK_LIMIT} scans available per session.`;
+    generateSessionBtn.textContent = "Connect";
     copySessionBtn.disabled = true;
     revealSessionBtn.disabled = true;
     revealSessionBtn.textContent = "Reveal Key";
-    setRemoteModePill(preferredAnalyzeMode === "remote" ? "Remote key on demand" : "Remote API standing by");
+    setRemoteModePill(preferredAnalyzeMode === "remote" ? "Will connect on demand" : "Server ready");
     return;
   }
   const expired = isSessionExpired(session);
   sessionKeyDisplay.value = revealSessionKey ? session.sessionKey : maskSessionKey(session.sessionKey);
-  generateSessionBtn.textContent = expired ? "Refresh Working Key" : "Refresh Key";
+  generateSessionBtn.textContent = expired ? "Reconnect" : "Refresh Connection";
   revealSessionBtn.disabled = false;
   revealSessionBtn.textContent = revealSessionKey ? "Hide Key" : "Reveal Key";
   if (expired) {
-    sessionKeyStatus.textContent = `Session key for ${baseUrl} expired. Refresh it or run remote scan to mint a fresh one.`;
+    sessionKeyStatus.textContent = "Connection expired. Will reconnect automatically on next scan.";
     copySessionBtn.disabled = true;
-    setRemoteModePill("Remote key expired", "attention");
+    setRemoteModePill("Connection expired", "attention");
   } else {
-    sessionKeyStatus.textContent = `Active key for ${baseUrl} expires at ${new Date(session.expiresAtMs).toLocaleString()}.`;
+    sessionKeyStatus.textContent = "Connected.";
     copySessionBtn.disabled = false;
-    setRemoteModePill("Remote key ready", "online");
+    setRemoteModePill("Server connected", "online");
   }
-  const quota = session.rateLimit || {};
-  const qLimit = quota.limit ?? FALLBACK_LIMIT;
-  const qRemaining = quota.remaining ?? "unknown";
   const jobQuota = session.jobQuota || {};
   const jobLimit = jobQuota.limit ?? FALLBACK_LIMIT;
-  const jobRemaining = jobQuota.remaining ?? "unknown";
-  sessionQuotaStatus.textContent = `Key generation: ${qRemaining}/${qLimit} remaining. Job quota on key: ${jobRemaining}/${jobLimit}.`;
+  const jobRemaining = jobQuota.remaining ?? jobLimit;
+  sessionQuotaStatus.textContent = `${jobRemaining} scan${jobRemaining === 1 ? "" : "s"} remaining.`;
 }
+
+// ── Async helpers ───────────────────────────────────────────────────────────
 
 async function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+// ── Remote API session ──────────────────────────────────────────────────────
 
 async function generateRemoteSessionKey(baseUrlOverride = "") {
   setRemoteError("");
@@ -417,24 +480,34 @@ async function generateRemoteSessionKey(baseUrlOverride = "") {
     ? { baseUrl: normalizeBaseUrl(baseUrlOverride), error: "" }
     : parseRemoteBaseUrl(remoteApiUrlInput.value);
   const baseUrl = parsed.baseUrl;
-  if (!baseUrl) throw new Error(parsed.error || "Provide Remote API URL first.");
+  if (!baseUrl) throw new Error(parsed.error || "Enter the server address first.");
   if (parsed.error) throw new Error(parsed.error);
   let response;
   try {
     response = await fetch(sessionKeyEndpoint(baseUrl), { method: "POST" });
-  } catch {
-    throw new Error(
-      `Cannot reach ${baseUrl}. Check URL, server availability, and CORS for ${window.location.origin}.`
-    );
+  } catch (err) {
+    let msg = `Cannot reach the analysis server at ${baseUrl}. Make sure the server is running and accessible from this browser. If running locally, start it with: \`qvk serve\``;
+    if (isCorsLikeError(err, baseUrl)) {
+      try {
+        const urlObj = new URL(baseUrl);
+        const isNonLocal = !["localhost", "127.0.0.1"].includes(urlObj.hostname);
+        if (window.location.protocol === "https:" && isNonLocal) {
+          msg += ` The server may also need CORS configured to allow requests from ${window.location.origin}.`;
+        }
+      } catch {}
+    }
+    throw new Error(msg);
   }
   if (!response.ok) {
-    const body = await response.text();
     if (response.status === 404) {
       throw new Error(
-        `Session endpoint not found at ${sessionKeyEndpoint(baseUrl)}. Use FastAPI base URL only (not /api or /api/v1).`
+        `Analysis server found at ${baseUrl} but the expected API path was not found. Make sure you're using the correct server address (just the base URL, e.g. http://127.0.0.1:8000).`
       );
     }
-    throw new Error(`Session key generation failed: ${body}`);
+    if (response.status === 429) {
+      throw new Error("Too many requests. Please wait a moment and try again.");
+    }
+    throw new Error("Something went wrong connecting to the server. Please try again.");
   }
   const payload = await response.json();
   const expiresMs = new Date(payload.expires_at_utc).getTime();
@@ -453,7 +526,7 @@ async function generateRemoteSessionKey(baseUrlOverride = "") {
 
 async function ensureRemoteSession(baseUrl, options = {}) {
   if (!baseUrl) {
-    throw new Error("Provide FastAPI base URL first.");
+    throw new Error("Enter the server address first.");
   }
   const session = loadRemoteSession(baseUrl);
   if (!options.forceRefresh && session && !isSessionExpired(session)) {
@@ -466,13 +539,29 @@ async function remoteFetch(baseUrl, path, init = {}, allowRetry = true) {
   const session = await ensureRemoteSession(baseUrl);
   const headers = new Headers(init.headers || {});
   headers.set("X-Session-Key", session.sessionKey);
-  let response = await fetch(`${baseUrl}${path}`, { ...init, headers });
+  let response;
+  try {
+    response = await fetch(`${baseUrl}${path}`, { ...init, headers });
+  } catch (err) {
+    let msg = `Cannot reach the analysis server at ${baseUrl}. Make sure the server is running and accessible from this browser. If running locally, start it with: \`qvk serve\``;
+    if (isCorsLikeError(err, baseUrl)) {
+      try {
+        const urlObj = new URL(baseUrl);
+        const isNonLocal = !["localhost", "127.0.0.1"].includes(urlObj.hostname);
+        if (window.location.protocol === "https:" && isNonLocal) {
+          msg += ` The server may also need CORS configured to allow requests from ${window.location.origin}.`;
+        }
+      } catch {}
+    }
+    throw new Error(msg);
+  }
   if (response.status === 401) {
     clearRemoteSession(baseUrl);
     renderRemoteSessionState();
     if (!allowRetry) {
-      throw new Error("Session key invalid/expired. Generate a new one.");
+      throw new Error("Server connection expired. Reconnecting automatically...");
     }
+    setProgress(0, "Server connection expired. Reconnecting automatically...");
     const refreshed = await ensureRemoteSession(baseUrl, { forceRefresh: true });
     const retryHeaders = new Headers(init.headers || {});
     retryHeaders.set("X-Session-Key", refreshed.sessionKey);
@@ -480,15 +569,16 @@ async function remoteFetch(baseUrl, path, init = {}, allowRetry = true) {
     if (response.status === 401) {
       clearRemoteSession(baseUrl);
       renderRemoteSessionState();
-      throw new Error("Session key invalid/expired. Generate a new one.");
+      throw new Error("Server connection expired. Please try again.");
     }
   }
   if (response.status === 429) {
-    const body = await response.text();
-    throw new Error(`Rate limited: ${body}`);
+    throw new Error("Too many requests. Please wait a moment and try again.");
   }
   return response;
 }
+
+// ── Browser image/video analysis math ──────────────────────────────────────
 
 function averageHash(gray, width, height) {
   const targetW = 8;
@@ -610,6 +700,8 @@ function mad(values, center) {
 function sigmoid(x) {
   return 1 / (1 + Math.exp(-x));
 }
+
+// ── Browser video analysis ──────────────────────────────────────────────────
 
 function waitSeek(video, t) {
   return new Promise((resolve, reject) => {
@@ -770,6 +862,8 @@ async function analyzeInBrowser(file, options) {
   };
 }
 
+// ── Remote job ──────────────────────────────────────────────────────────────
+
 async function createRemoteJob(baseUrl, file, options) {
   const payload = {
     preset: "balanced",
@@ -782,8 +876,7 @@ async function createRemoteJob(baseUrl, file, options) {
   formData.append("options", JSON.stringify(payload));
   const resp = await remoteFetch(baseUrl, "/api/v1/jobs", { method: "POST", body: formData });
   if (!resp.ok) {
-    const body = await resp.text();
-    throw new Error(`Remote job creation failed: ${body}`);
+    throw new Error("Something went wrong during analysis. Please try again.");
   }
   const job = await resp.json();
   const session = loadRemoteSession(baseUrl);
@@ -801,12 +894,12 @@ async function pollRemoteResult(baseUrl, jobId) {
   while (attempts < 900) {
     attempts += 1;
     const statusResp = await remoteFetch(baseUrl, `/api/v1/jobs/${jobId}`, { method: "GET" });
-    if (!statusResp.ok) throw new Error("Remote status request failed.");
+    if (!statusResp.ok) throw new Error("Something went wrong during analysis. Please try again.");
     const status = await statusResp.json();
-    setProgress(status.progress_percent || 0, `Remote API: ${status.phase || status.status}`);
+    setProgress(status.progress_percent || 0, humanizePhase(status.phase || status.status));
     if (status.status === "completed") {
       const resultResp = await remoteFetch(baseUrl, `/api/v1/jobs/${jobId}/result`, { method: "GET" });
-      if (!resultResp.ok) throw new Error("Remote result request failed.");
+      if (!resultResp.ok) throw new Error("Something went wrong during analysis. Please try again.");
       const resultPayload = await resultResp.json();
       const result = resultPayload.result || {};
       return {
@@ -821,16 +914,18 @@ async function pollRemoteResult(baseUrl, jobId) {
         }
       };
     }
-    if (status.status === "failed") throw new Error(status.message || "Remote analysis failed.");
+    if (status.status === "failed") throw new Error("Something went wrong during analysis. Please try again.");
     await sleep(1200);
   }
   throw new Error("Remote analysis timed out.");
 }
 
+// ── Result rendering ────────────────────────────────────────────────────────
+
 function renderResult(report) {
   latestReport = report;
   resultCard.classList.remove("hidden");
-  resultMode.textContent = report.mode;
+  resultMode.textContent = humanizeMode(report.mode);
   const label = report.label || "inconclusive";
   const probability = report.tamper_probability || 0;
   const confidence = report.confidence || 0;
@@ -862,6 +957,8 @@ function getOptions() {
   };
 }
 
+// ── Bootstrap ───────────────────────────────────────────────────────────────
+
 function bootstrapRemoteApiUrl() {
   const params = new URLSearchParams(window.location.search);
   const queryApi = params.get("api");
@@ -878,6 +975,8 @@ function bootstrapRemoteApiUrl() {
   }
   updateRemoteUrlHelper();
 }
+
+// ── Event listeners ─────────────────────────────────────────────────────────
 
 analyzeBrowserBtn.addEventListener("click", () => {
   setAnalyzeMode("browser");
@@ -912,7 +1011,7 @@ copySessionBtn.addEventListener("click", async () => {
   try {
     await navigator.clipboard.writeText(session.sessionKey);
     setRemoteError("");
-    sessionKeyStatus.textContent = "Working key copied to clipboard for this browser session.";
+    sessionKeyStatus.textContent = "Key copied to clipboard.";
   } catch {
     setRemoteError("Clipboard access failed. Reveal the key and copy it manually.");
   }
@@ -922,7 +1021,7 @@ revealSessionBtn.addEventListener("click", () => {
   const baseUrl = parseRemoteBaseUrl(remoteApiUrlInput.value).baseUrl;
   const session = baseUrl ? loadRemoteSession(baseUrl) : null;
   if (!session) {
-    setRemoteError("Generate a working key first.");
+    setRemoteError("No active session key to reveal.");
     return;
   }
   revealSessionKey = !revealSessionKey;
@@ -960,12 +1059,12 @@ form.addEventListener("submit", async (event) => {
   const fileInput = document.getElementById("video-file");
   const file = fileInput.files && fileInput.files[0];
   if (!file) {
-    alert("Select a video file first.");
+    setRemoteError("Select a video file first.");
     return;
   }
   setAnalyzeButtonsDisabled(true);
   resultCard.classList.add("hidden");
-  setProgress(5, "Preparing analysis");
+  setProgress(5, "Preparing analysis...");
 
   try {
     const options = getOptions();
@@ -976,11 +1075,11 @@ form.addEventListener("submit", async (event) => {
     if (requestedMode === "remote") {
       const parsed = parseRemoteBaseUrl(remoteApiUrlInput.value);
       const baseUrl = parsed.baseUrl;
-      if (!baseUrl) throw new Error(parsed.error || "Provide FastAPI base URL first.");
+      if (!baseUrl) throw new Error(parsed.error || "Enter the server address first.");
       if (parsed.error) throw new Error(parsed.error);
-      setProgress(10, "Requesting working session key");
+      setProgress(10, "Connecting to server...");
       await ensureRemoteSession(baseUrl);
-      setProgress(18, "Opening remote case file");
+      setProgress(18, "Uploading video for analysis...");
       const job = await createRemoteJob(baseUrl, file, options);
       report = await pollRemoteResult(baseUrl, job.job_id);
     } else {
@@ -990,7 +1089,6 @@ form.addEventListener("submit", async (event) => {
     renderResult(report);
   } catch (error) {
     setRemoteError(error.message);
-    alert(`Error: ${error.message}`);
   } finally {
     setAnalyzeButtonsDisabled(false);
   }
@@ -998,7 +1096,7 @@ form.addEventListener("submit", async (event) => {
 
 downloadReportBtn.addEventListener("click", () => {
   if (!latestReport) {
-    alert("Run an analysis first.");
+    setRemoteError("Run an analysis first before downloading a report.");
     return;
   }
   const htmlReport = buildGraphicalReportHtml(latestReport);

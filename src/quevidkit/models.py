@@ -81,13 +81,21 @@ class AnalysisOptions:
             options = AnalysisOptions(**kwargs)
         except (TypeError, ValueError) as exc:
             raise ValueError(f"Invalid options payload: {exc}") from exc
+        valid_presets = {"fast", "balanced", "deep"}
+        if options.preset not in valid_presets:
+            raise ValueError(
+                f"Invalid preset '{options.preset}'. Valid options: {', '.join(sorted(valid_presets))}"
+            )
         options.apply_preset()
         try:
             options.sample_fps = max(0.2, min(30.0, float(options.sample_fps)))
             options.max_frames = max(60, min(100000, int(options.max_frames)))
             options.sensitivity = max(0.05, min(0.99, float(options.sensitivity)))
         except (TypeError, ValueError) as exc:
-            raise ValueError(f"Invalid numeric option: {exc}") from exc
+            raise ValueError(
+                f"Invalid numeric option: {exc}. "
+                f"Valid ranges: sample_fps 0.2-30.0, max_frames 60-100000, sensitivity 0.05-0.99"
+            ) from exc
         return options
 
     def apply_preset(self) -> None:
@@ -117,6 +125,12 @@ class AnalysisResult:
     debug: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-serializable dict representation of the analysis result."""
+        video_duration_s = round(
+            self.duration_s
+            or self.debug.get("signals", {}).get("video_duration_s", 0.0),
+            3,
+        )
         return {
             "video_path": self.video_path,
             "started_at_utc": self.started_at_utc,
@@ -124,12 +138,13 @@ class AnalysisResult:
             "file_sha256": self.file_sha256,
             "file_size_bytes": self.file_size_bytes,
             "duration_s": round(self.duration_s, 3),
+            "video_duration_s": video_duration_s,
             "tamper_probability": round(self.tamper_probability, 4),
             "label": self.label,
             "confidence": round(self.confidence, 4),
             "checks": [check.to_dict() for check in self.checks],
             "suspicious_segments": [segment.to_dict() for segment in self.suspicious_segments],
-            "explanation": self.explanation,
+            "explanation": self.explanation if self.explanation is not None else [],
             "options": self.options,
             "debug": self.debug,
         }

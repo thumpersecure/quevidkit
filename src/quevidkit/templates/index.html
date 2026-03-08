@@ -3,26 +3,29 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>quevidkit forensic command deck</title>
+  <title>Video Forensics Lab — quevidkit</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
   <main class="container">
     <section class="card hero-card">
-      <p class="eyebrow">Evidence lab / full forensic console</p>
-      <h1>quevidkit Forensic Command Deck</h1>
+      <p class="eyebrow">quevidkit · Forensic Analysis</p>
+      <h1>Video Forensics Lab</h1>
       <p class="muted lead">
-        Upload a video to open a deeper investigation. The engine checks metadata, codec and container structure,
-        packet timing, missing or duplicated frames, and abrupt quality shifts before assembling a case report.
+        Upload a video clip to analyze it for signs of tampering, editing, or manipulation.
+        Analysis runs on this server with full packet and metadata forensics.
       </p>
       <div class="callout-grid">
         <div class="note-panel">
-          <strong>Automatic access keys</strong>
-          <span>The hosted console issues session keys behind the scenes before it talks to the protected API.</span>
-        </div>
-        <div class="note-panel">
           <strong>Evidence sweep</strong>
           <span>Combine fast presets with deeper scans, then export a clean case summary for review.</span>
+        </div>
+        <div class="note-panel">
+          <strong>Multiple detectors</strong>
+          <span>Runs metadata, packet timing, frame structure, and visual quality checks in parallel.</span>
         </div>
       </div>
 
@@ -33,11 +36,11 @@
         </label>
 
         <label class="field">
-          <span>Preset</span>
+          <span>Analysis preset</span>
           <select id="preset">
-            <option value="fast">Fast</option>
-            <option value="balanced" selected>Balanced</option>
-            <option value="deep">Deep</option>
+            <option value="fast">Fast — quick scan, lower accuracy</option>
+            <option value="balanced" selected>Balanced — recommended</option>
+            <option value="deep">Deep — thorough, slower</option>
           </select>
         </label>
 
@@ -45,37 +48,38 @@
           <summary>Advanced options</summary>
           <div class="advanced-grid">
             <label class="field">
-              <span>Sample FPS</span>
+              <span>Sample rate (frames per second)</span>
               <input id="sample-fps" type="number" min="0.2" max="30" step="0.1" value="2.0">
             </label>
             <label class="field">
-              <span>Max sampled frames</span>
+              <span>Maximum frames to sample</span>
               <input id="max-frames" type="number" min="60" max="100000" step="1" value="2000">
             </label>
             <label class="field">
-              <span>Sensitivity (0-1)</span>
+              <span>Detection sensitivity (0–1)</span>
               <input id="sensitivity" type="number" min="0.05" max="0.99" step="0.01" value="0.7">
             </label>
-            <label><input id="metadata-scan" type="checkbox" checked> Metadata/codec scan</label>
+            <label><input id="metadata-scan" type="checkbox" checked> Metadata &amp; codec scan</label>
             <label><input id="packet-scan" type="checkbox" checked> Packet timing scan</label>
             <label><input id="frame-scan" type="checkbox" checked> Frame structure scan</label>
-            <label><input id="quality-scan" type="checkbox" checked> Quality shift scan</label>
-            <label><input id="debug-payload" type="checkbox"> Include heavy debug payload</label>
+            <label><input id="quality-scan" type="checkbox" checked> Visual quality scan</label>
+            <label><input id="debug-payload" type="checkbox"> Include debug data in results</label>
           </div>
         </details>
 
-        <button id="analyze-btn" type="submit">Run forensic scan</button>
+        <div id="error-message" class="error-message hidden"></div>
+        <button id="analyze-btn" type="submit">Analyze Video</button>
       </form>
     </section>
 
     <section id="progress-card" class="card hidden">
-      <h2>Progress</h2>
-      <p id="progress-text">Queued</p>
+      <h2>Analysis in progress</h2>
+      <p id="progress-text">Waiting in queue...</p>
       <div class="progress-track"><div id="progress-bar" class="progress-bar"></div></div>
     </section>
 
     <section id="result-card" class="card hidden">
-      <h2>Graphical report</h2>
+      <h2>Forensic report</h2>
       <div class="report-overview">
         <div class="report-badge-wrap">
           <span id="verdict" class="verdict-badge">INCONCLUSIVE</span>
@@ -108,10 +112,10 @@
       <div id="timeline-track" class="timeline-track"></div>
       <ul id="segment-list"></ul>
 
-      <button id="download-report-btn" type="button">Download graphical HTML report</button>
+      <button id="download-report-btn" type="button">Download HTML report</button>
 
       <details class="advanced">
-        <summary>Raw technical JSON (advanced)</summary>
+        <summary>Raw JSON data (technical)</summary>
         <pre id="checks-json"></pre>
       </details>
     </section>

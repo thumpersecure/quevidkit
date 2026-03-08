@@ -547,36 +547,89 @@ def opencv_frame_quality_checks(
     )
 
 
+_FFPROBE_NOT_FOUND_MSG = "ffprobe not found. Install ffmpeg to enable this check."
+
+
 def analyze_video(path: str, options: AnalysisOptions | None = None) -> AnalysisResult:
     opts = AnalysisOptions.from_dict(asdict(options)) if options else AnalysisOptions()
     started = now_utc_iso()
 
-    basic_probe = build_basic_probe(path)
+    checks: list[CheckResult] = []
+    debug_payload: dict[str, Any] = {"probe_errors": []}
+
+    ffprobe_available = True
+    try:
+        basic_probe = build_basic_probe(path)
+    except FileNotFoundError:
+        basic_probe = {}
+        ffprobe_available = False
+        debug_payload["probe_errors"].append(_FFPROBE_NOT_FOUND_MSG)
+    except FFProbeError as exc:
+        basic_probe = {}
+        debug_payload["probe_errors"].append(f"basic_probe: {exc}")
+
     video_stream = _extract_video_stream(basic_probe)
     duration_s = _extract_duration(basic_probe, video_stream)
     fps_hint = _extract_fps(video_stream)
 
-    checks: list[CheckResult] = []
-    debug_payload: dict[str, Any] = {"probe_errors": []}
-
     if opts.enable_metadata_scan:
-        checks.append(metadata_codec_checks(basic_probe))
+        if not ffprobe_available:
+            checks.append(
+                CheckResult(
+                    name="metadata_codec_consistency",
+                    category="metadata",
+                    score=0.0,
+                    confidence=0.1,
+                    summary=_FFPROBE_NOT_FOUND_MSG,
+                    details={},
+                )
+            )
+        else:
+            checks.append(metadata_codec_checks(basic_probe))
 
     packet_probe = {}
     if opts.enable_packet_scan:
-        try:
-            packet_probe = build_packet_probe(path, timeout=240 if opts.preset == "deep" else 120)
-            checks.append(packet_timing_checks(packet_probe, fps_hint=fps_hint))
-        except FFProbeError as exc:
-            debug_payload["probe_errors"].append(f"packet_probe: {exc}")
+        if not ffprobe_available:
+            checks.append(
+                CheckResult(
+                    name="packet_timing_anomalies",
+                    category="timing",
+                    score=0.0,
+                    confidence=0.1,
+                    summary=_FFPROBE_NOT_FOUND_MSG,
+                    details={},
+                )
+            )
+        else:
+            try:
+                packet_probe = build_packet_probe(path, timeout=240 if opts.preset == "deep" else 120)
+                checks.append(packet_timing_checks(packet_probe, fps_hint=fps_hint))
+            except FileNotFoundError:
+                debug_payload["probe_errors"].append(f"packet_probe: {_FFPROBE_NOT_FOUND_MSG}")
+            except FFProbeError as exc:
+                debug_payload["probe_errors"].append(f"packet_probe: {exc}")
 
     frame_probe = {}
     if opts.enable_frame_scan:
-        try:
-            frame_probe = build_frame_probe(path, timeout=240 if opts.preset == "deep" else 120)
-            checks.append(frame_structure_checks(frame_probe))
-        except FFProbeError as exc:
-            debug_payload["probe_errors"].append(f"frame_probe: {exc}")
+        if not ffprobe_available:
+            checks.append(
+                CheckResult(
+                    name="frame_structure_anomalies",
+                    category="codec",
+                    score=0.0,
+                    confidence=0.1,
+                    summary=_FFPROBE_NOT_FOUND_MSG,
+                    details={},
+                )
+            )
+        else:
+            try:
+                frame_probe = build_frame_probe(path, timeout=240 if opts.preset == "deep" else 120)
+                checks.append(frame_structure_checks(frame_probe))
+            except FileNotFoundError:
+                debug_payload["probe_errors"].append(f"frame_probe: {_FFPROBE_NOT_FOUND_MSG}")
+            except FFProbeError as exc:
+                debug_payload["probe_errors"].append(f"frame_probe: {exc}")
 
     if opts.enable_quality_scan:
         try:
@@ -617,6 +670,12 @@ def analyze_video(path: str, options: AnalysisOptions | None = None) -> Analysis
         explanation.append(
             f"{check.name}: {check.summary} (score={check.score:.2f}, confidence={check.confidence:.2f})"
         )
+
+    for check in checks:
+        if check.score == 0.0 and check.confidence <= 0.05 and check.summary:
+            note = f"Note: {check.summary}"
+            if note not in explanation:
+                explanation.append(note)
 
     finished = now_utc_iso()
     debug = {}

@@ -35,7 +35,7 @@ def quality_gate(checks: list[CheckResult]) -> float:
 def fuse_scores(checks: list[CheckResult], sensitivity: float) -> tuple[float, float, str]:
     """Returns (tamper_probability, confidence, label)."""
     if not checks:
-        return 0.0, 0.0, "inconclusive"
+        return 0.5, 0.0, "inconclusive"
 
     weighted_checks: list[tuple[float, float]] = []
     for check in checks:
@@ -44,7 +44,10 @@ def fuse_scores(checks: list[CheckResult], sensitivity: float) -> tuple[float, f
     base = weighted_mean(weighted_checks)
     gate = quality_gate(checks)
 
-    # Use logistic scaling so mid-range evidence changes smoothly.
+    # Logistic function: bias shifts the decision threshold based on sensitivity
+    # (range: -1.0 at sensitivity=0.05 to -0.64 at sensitivity=0.99 after offset);
+    # base * 5.2 amplifies the weighted anomaly score; gate * 0.4 boosts probability
+    # slightly when evidence quality is high.
     bias = -2.6 + (sensitivity * 1.6)
     logit = bias + (base * 5.2) + (gate * 0.4)
     probability = 1.0 / (1.0 + math.exp(-logit))

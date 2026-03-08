@@ -85,7 +85,7 @@ class SessionKeyManager:
 
     def _hash_token(self, key_id: str, token_secret: str) -> str:
         payload = f"{key_id}.{token_secret}".encode("utf-8")
-        return hmac.new(self._secret, payload, hashlib.sha256).hexdigest()
+        return hmac.new(self._secret, payload, digestmod=hashlib.sha256).hexdigest()
 
     def _cleanup_locked(self, now_s: float) -> None:
         expired_key_ids = [key_id for key_id, record in self._keys.items() if record.expires_at_s <= now_s]
@@ -109,7 +109,7 @@ class SessionKeyManager:
                 reset_after_s = max(1, int(self._generation_window_s - (current - events[0])))
                 raise HTTPException(
                     status_code=429,
-                    detail="Session key generation rate limit exceeded (10 per window).",
+                    detail="Session key generation rate limit exceeded. Please wait and try again.",
                     headers={"Retry-After": str(reset_after_s)},
                 )
             events.append(current)
@@ -187,7 +187,7 @@ class SessionKeyManager:
                 raise HTTPException(status_code=401, detail="Session key expired.")
             if consume_job_create:
                 if record.remaining_job_creates <= 0:
-                    raise HTTPException(status_code=429, detail="Session key job quota exceeded (10).")
+                    raise HTTPException(status_code=429, detail="Job quota exceeded for this session. Generate a new session key to continue.")
                 record.remaining_job_creates -= 1
             return SessionPrincipal(
                 client_id=record.client_id,
@@ -274,19 +274,23 @@ executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="qvk-worker")
 
 _cors_origins_raw = os.environ.get("QVK_CORS_ALLOW_ORIGINS", "").strip()
 if _cors_origins_raw:
-    allow_origins = [origin.strip() for origin in _cors_origins_raw.split(",") if origin.strip()]
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=allow_origins or ["*"],
-        allow_credentials=False,
-        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "X-Session-Key"],
-    )
+    _cors_allow_origins = [o.strip() for o in _cors_origins_raw.split(",") if o.strip()]
+else:
+    _cors_allow_origins = ["*"]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_allow_origins,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Session-Key"],
+    expose_headers=["X-RateLimit-Limit", "X-RateLimit-Remaining"],
+)
 
 
 def _allowed_filename(name: str) -> bool:
     lowered = name.lower()
-    return lowered.endswith((".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v"))
+    return lowered.endswith((".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v", ".ts", ".3gp"))
 
 
 def _parse_options(raw_options: str | None) -> AnalysisOptions:
@@ -328,17 +332,17 @@ async def _save_upload_stream(file: UploadFile, destination: Path) -> int:
             if total_bytes > MAX_UPLOAD_BYTES:
                 handle.close()
                 destination.unlink(missing_ok=True)
-                raise HTTPException(status_code=413, detail="Uploaded file exceeds configured size limit")
+                raise HTTPException(status_code=413, detail=f"File too large. Maximum upload size is {MAX_UPLOAD_BYTES // (1024 * 1024)} MB.")
             handle.write(chunk)
     await file.close()
     if total_bytes < 16:
         destination.unlink(missing_ok=True)
-        raise HTTPException(status_code=400, detail="Uploaded file is too small")
+        raise HTTPException(status_code=400, detail="File appears to be empty or invalid.")
     return total_bytes
 
 
 def _client_id_from_request(request: Request) -> str:
-    ip = request.client.host if request.client else "unknown"
+    ip = (request.client.host if request.client and request.client.host else "unknown")
     user_agent = request.headers.get("user-agent", "")[:256]
     raw = f"{ip}|{user_agent}".encode("utf-8")
     return hashlib.sha256(raw).hexdigest()[:24]
@@ -408,7 +412,7 @@ async def index(request: Request) -> HTMLResponse:
 
 @app.get("/api/health")
 async def health() -> dict[str, str]:
-    return {"status": "ok"}
+    return {"status": "ok", "version": "1.0", "service": "quevidkit"}
 
 
 @app.post("/api/v1/session-key")
@@ -450,7 +454,7 @@ async def create_job(
     if not file.filename:
         raise HTTPException(status_code=400, detail="Missing file name")
     if not _allowed_filename(file.filename):
-        raise HTTPException(status_code=415, detail="Unsupported file type")
+        raise HTTPException(status_code=415, detail="Unsupported video format. Supported formats: MP4, MOV, MKV, AVI, WebM, M4V.")
 
     parsed_options = _parse_options(options)
     _cleanup_old_uploads()
