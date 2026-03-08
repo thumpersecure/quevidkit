@@ -3,20 +3,32 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>quevidkit - GitHub Pages Forensic Analyzer</title>
+  <title>quevidkit - GitHub Pages Forensic Command Deck</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
   <main class="container">
-    <section class="card">
-      <h1>quevidkit Forensic Video Tool</h1>
-      <p class="muted">
-        GitHub Pages edition: runs in your browser without server-side code.
-        It estimates tampering signals from frame continuity and quality shifts.
+    <section class="card hero-card">
+      <p class="eyebrow">Caseboard / GitHub Pages field kit</p>
+      <h1>quevidkit Forensic Command Deck</h1>
+      <p class="muted lead">
+        Upload a clip and either run a fast browser triage or dispatch a remote full scan.
+        If a FastAPI endpoint is already configured, this page can fetch a working session key
+        for you with a single button press.
       </p>
+      <div class="callout-grid">
+        <div class="note-panel">
+          <strong>Browser triage</strong>
+          <span>Runs entirely in this tab for a quick first pass on continuity and quality shifts.</span>
+        </div>
+        <div class="note-panel">
+          <strong>Remote full scan</strong>
+          <span>Pulls an ephemeral working key, then reaches the deeper packet and metadata forensics API.</span>
+        </div>
+      </div>
       <p class="warning">
-        Browser mode cannot access deep container internals (full ffprobe packet/codec analysis).
-        For comprehensive results, use Remote API mode.
+        Remote keys are ephemeral and bound to this browser session. Full scan will auto-request one when needed,
+        and you can reveal or copy the token if you need to use it from this same client.
       </p>
 
       <form id="analyze-form">
@@ -25,8 +37,44 @@
           <input id="video-file" type="file" accept="video/*" required>
         </label>
 
+        <div class="mode-actions">
+          <button id="analyze-browser-btn" type="submit" class="secondary" data-mode="browser">Run browser triage</button>
+          <button id="analyze-remote-btn" type="submit" class="primary-action" data-mode="remote">Run full remote scan</button>
+        </div>
+        <p class="muted action-hint">Remote scan will request a working key automatically if one is missing or expired.</p>
+
+        <section class="case-panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow small">Access key generator</p>
+              <h2>Remote API connection</h2>
+            </div>
+            <span id="remote-mode-pill" class="status-pill">Browser triage ready</span>
+          </div>
+          <label class="field">
+            <span>FastAPI base URL</span>
+            <input id="remote-api-url" type="url" placeholder="https://your-api.example.com">
+            <small id="remote-api-help" class="muted">Use only the base URL (example: http://127.0.0.1:8000 or https://api.example.com).</small>
+            <small id="remote-endpoint-preview" class="muted">Session key endpoint preview will appear here.</small>
+          </label>
+          <div class="field key-controls">
+            <span>Working session key (bound to this browser)</span>
+            <div class="inline-actions">
+              <button id="use-local-fastapi-btn" type="button" class="secondary">Use Local FastAPI</button>
+              <button id="generate-session-btn" type="button">Get Working Key</button>
+              <button id="copy-session-btn" type="button" class="secondary">Copy Key</button>
+              <button id="reveal-session-btn" type="button" class="secondary">Reveal Key</button>
+              <button id="clear-session-btn" type="button" class="ghost">Clear Key</button>
+            </div>
+            <input id="session-key-display" type="text" readonly placeholder="No session key yet">
+            <small id="session-key-status" class="muted">Add a FastAPI URL, then click Get Working Key or run a full remote scan.</small>
+            <small id="session-quota-status" class="muted">Generation limit: 10 keys per window.</small>
+            <small id="remote-error" class="error hidden"></small>
+          </div>
+        </section>
+
         <details class="advanced">
-          <summary>Advanced options</summary>
+          <summary>Advanced analysis controls</summary>
           <div class="advanced-grid">
             <label class="field">
               <span>Sample interval (seconds)</span>
@@ -40,29 +88,8 @@
               <span>Sensitivity (0-1)</span>
               <input id="sensitivity" type="number" min="0.05" max="0.99" step="0.01" value="0.7">
             </label>
-            <label class="field">
-              <span>FastAPI base URL (required for Remote API mode)</span>
-              <input id="remote-api-url" type="url" placeholder="https://your-api.example.com">
-              <small id="remote-api-help" class="muted">Use only the base URL (example: http://127.0.0.1:8000 or https://api.example.com).</small>
-              <small id="remote-endpoint-preview" class="muted">Session key endpoint preview will appear here.</small>
-            </label>
-            <label><input id="use-remote-api" type="checkbox"> Use Remote API for full scan (requires session key)</label>
-            <div class="field key-controls">
-              <span>Remote session key (ephemeral)</span>
-              <div class="inline-actions">
-                <button id="use-local-fastapi-btn" type="button" class="secondary">Use Local FastAPI URL</button>
-                <button id="generate-session-btn" type="button">Generate Session Key</button>
-                <button id="clear-session-btn" type="button" class="secondary">Clear Key</button>
-              </div>
-              <input id="session-key-display" type="text" readonly placeholder="No session key yet">
-              <small id="session-key-status" class="muted">Generate a key before Remote API analysis.</small>
-              <small id="session-quota-status" class="muted">Generation limit: 10 keys per window.</small>
-              <small id="remote-error" class="error hidden"></small>
-            </div>
           </div>
         </details>
-
-        <button id="analyze-btn" type="submit">Analyze</button>
       </form>
     </section>
 

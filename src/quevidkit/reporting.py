@@ -7,12 +7,12 @@ from .models import AnalysisResult
 
 def decision_color(label: str) -> str:
     if label == "tampered":
-        return "#b00020"
+        return "#ff5a6b"
     if label == "suspicious":
-        return "#cc6600"
+        return "#f6b73c"
     if label == "authentic":
-        return "#1f7a1f"
-    return "#555555"
+        return "#3dd68c"
+    return "#6f7d97"
 
 
 def _check_long_explanation(check_name: str, summary: str) -> str:
@@ -101,32 +101,38 @@ def result_to_html(result: AnalysisResult) -> str:
   <meta charset="utf-8"/>
   <title>quevidkit forensic report</title>
   <style>
-    body {{ font-family: Arial, sans-serif; margin: 24px; color: #111; background: #f5f6fa; }}
+    body {{ font-family: Arial, sans-serif; margin: 0; padding: 24px; color: #edf4ff; background: radial-gradient(circle at top, #18253e 0%, #08111f 62%, #050914 100%); }}
+    .shell {{ max-width: 1120px; margin: 0 auto; }}
     .header {{ margin-bottom: 18px; }}
-    .badge {{ display: inline-block; padding: 6px 12px; border-radius: 16px; color: white; font-weight: bold; }}
-    .card {{ background: white; border: 1px solid #e2e2e2; border-radius: 8px; padding: 16px; margin-bottom: 16px; }}
+    .eyebrow {{ text-transform: uppercase; letter-spacing: 0.18em; color: #8bd4ff; font-size: 0.74rem; margin: 0 0 8px; }}
+    .badge {{ display: inline-block; padding: 7px 14px; border-radius: 999px; color: #06111c; font-weight: bold; letter-spacing: 0.08em; }}
+    .card {{ background: rgba(16, 24, 39, 0.94); border: 1px solid #2d3c5a; border-radius: 14px; padding: 16px; margin-bottom: 16px; box-shadow: 0 18px 44px rgba(0, 0, 0, 0.28); }}
     .summary-grid {{ display: grid; grid-template-columns: repeat(3, minmax(150px, 1fr)); gap: 12px; margin-top: 12px; }}
-    .summary-box {{ border: 1px solid #ececec; border-radius: 8px; padding: 10px; background: #fcfcfd; }}
-    .summary-box p {{ margin: 0; font-size: 0.9rem; color: #555; }}
-    .summary-box h3 {{ margin: 6px 0 0; font-size: 1.2rem; }}
-    .meter {{ margin-top: 10px; height: 16px; border-radius: 20px; background: #eceef4; overflow: hidden; }}
-    .meter-fill {{ height: 100%; background: linear-gradient(90deg, #1f7a1f 0%, #cc6600 60%, #b00020 100%); }}
+    .summary-box {{ border: 1px solid #2d3c5a; border-radius: 12px; padding: 12px; background: rgba(8, 17, 31, 0.78); }}
+    .summary-box p {{ margin: 0; font-size: 0.86rem; color: #9db0cb; text-transform: uppercase; letter-spacing: 0.08em; }}
+    .summary-box h3 {{ margin: 6px 0 0; font-size: 1.3rem; color: #edf4ff; }}
+    .meter {{ margin-top: 10px; height: 16px; border-radius: 999px; background: #0a1527; border: 1px solid #263653; overflow: hidden; }}
+    .meter-fill {{ height: 100%; background: linear-gradient(90deg, #3dd68c 0%, #f6b73c 55%, #ff5a6b 100%); }}
     .checks-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }}
-    .check-card {{ border: 1px solid #e7e8ee; border-radius: 8px; padding: 12px; background: #fff; }}
-    .check-sub {{ margin: 0 0 8px; color: #5c5f69; font-size: 0.92rem; }}
-    .bar-row {{ display: grid; grid-template-columns: 130px 1fr auto; gap: 8px; align-items: center; margin: 6px 0; font-size: 0.88rem; }}
-    .bar {{ height: 10px; border-radius: 20px; background: #eceff6; overflow: hidden; }}
+    .check-card {{ border: 1px solid #2d3c5a; border-radius: 12px; padding: 12px; background: rgba(8, 17, 31, 0.78); }}
+    .check-sub {{ margin: 0 0 8px; color: #9db0cb; font-size: 0.92rem; }}
+    .bar-row {{ display: grid; grid-template-columns: 130px 1fr auto; gap: 8px; align-items: center; margin: 6px 0; font-size: 0.88rem; color: #c4d3ea; }}
+    .bar {{ height: 10px; border-radius: 999px; background: #0a1527; border: 1px solid #22314d; overflow: hidden; }}
     .bar-fill {{ height: 100%; }}
-    .bar-fill.score {{ background: #b00020; }}
-    .bar-fill.conf {{ background: #1a4fd8; }}
-    .timeline-track {{ position: relative; height: 30px; border-radius: 8px; background: #edf0f8; border: 1px solid #dce1ef; }}
-    .timeline-block {{ position: absolute; top: 3px; height: 24px; background: #b00020; border-radius: 6px; opacity: 0.75; }}
-    .timeline-empty {{ color: #666; font-style: italic; }}
-    ul {{ margin-top: 8px; }}
+    .bar-fill.score {{ background: #ff5a6b; }}
+    .bar-fill.conf {{ background: #5aa9ff; }}
+    .timeline-track {{ position: relative; height: 32px; border-radius: 12px; background: linear-gradient(90deg, rgba(90, 169, 255, 0.08), rgba(90, 169, 255, 0.02)), rgba(7, 14, 24, 0.86); border: 1px solid #2d3c5a; }}
+    .timeline-block {{ position: absolute; top: 4px; height: 24px; background: linear-gradient(90deg, rgba(246, 183, 60, 0.88), rgba(255, 90, 107, 0.94)); border-radius: 8px; opacity: 0.85; }}
+    .timeline-empty {{ color: #9db0cb; font-style: italic; }}
+    h1, h2, h3, strong {{ color: #edf4ff; }}
+    p, li {{ color: #c4d3ea; line-height: 1.55; }}
+    ul {{ margin-top: 8px; padding-left: 20px; }}
   </style>
 </head>
 <body>
+  <div class="shell">
   <div class="header">
+    <p class="eyebrow">Case file / forensic report</p>
     <h1>quevidkit forensic report</h1>
     <p>This report converts machine JSON findings into a human-friendly investigation summary.</p>
   </div>
@@ -155,6 +161,7 @@ def result_to_html(result: AnalysisResult) -> str:
     <h2>Timeline of suspicious segments</h2>
     {_timeline_blocks(result)}
     <ul>{segments_html or '<li>None</li>'}</ul>
+  </div>
   </div>
 </body>
 </html>
