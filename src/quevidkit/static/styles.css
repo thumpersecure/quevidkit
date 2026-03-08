@@ -22,7 +22,7 @@
 
 body {
   margin: 0;
-  font-family: Arial, sans-serif;
+  font-family: Inter, Arial, sans-serif;
   background:
     radial-gradient(circle at top, #18253e 0%, var(--bg) 58%, var(--bg-deep) 100%);
   color: var(--text);
@@ -258,6 +258,16 @@ button:disabled {
 
 .hidden {
   display: none;
+}
+
+.error-message {
+  background: rgba(255, 90, 107, 0.12);
+  border: 1px solid rgba(255, 90, 107, 0.4);
+  border-radius: 10px;
+  color: #ffb3bb;
+  font-size: 0.9rem;
+  padding: 10px 14px;
+  margin-bottom: 12px;
 }
 
 #checks-json {

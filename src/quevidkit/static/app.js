@@ -15,9 +15,42 @@ const checkBars = document.getElementById("check-bars");
 const checksJson = document.getElementById("checks-json");
 const analyzeBtn = document.getElementById("analyze-btn");
 const downloadReportBtn = document.getElementById("download-report-btn");
+const errorMessage = document.getElementById("error-message");
+const timelineTrack = document.getElementById("timeline-track");
+
 let sessionKeyRecord = null;
 let latestResult = null;
 const RISK_GRADIENT = "linear-gradient(90deg, #3dd68c 0%, #f6b73c 55%, #ff5a6b 100%)";
+
+const PHASE_LABELS = {
+  queued: "Waiting in queue...",
+  extracting_metadata: "Reading video metadata...",
+  forensic_analysis: "Running forensic analysis...",
+  done: "Complete"
+};
+
+const CHECK_NAMES = {
+  metadata_codec_consistency: "Metadata consistency",
+  packet_timing_anomalies: "Packet timing",
+  frame_structure_anomalies: "Frame structure",
+  frame_quality_shift: "Visual quality shifts"
+};
+
+function humanizeCheckName(name) {
+  return CHECK_NAMES[name] || name.replace(/_/g, " ");
+}
+
+function showError(message) {
+  if (!errorMessage) return;
+  errorMessage.textContent = message;
+  errorMessage.classList.remove("hidden");
+}
+
+function clearError() {
+  if (!errorMessage) return;
+  errorMessage.textContent = "";
+  errorMessage.classList.add("hidden");
+}
 
 function advancedOptions() {
   return {
@@ -45,34 +78,54 @@ async function pollJob(jobId) {
     if (attempts > maxAttempts) {
       throw new Error("Timed out waiting for analysis to finish.");
     }
-    const statusResponse = await apiFetch(`/api/v1/jobs/${jobId}`, { method: "GET" });
-    if (!statusResponse.ok) {
-      throw new Error("Unable to get job status");
+
+    let statusResponse;
+    try {
+      statusResponse = await apiFetch(`/api/v1/jobs/${jobId}`, { method: "GET" });
+    } catch (e) {
+      throw new Error("Lost connection to the server. Please check your network and try again.");
     }
+    if (!statusResponse.ok) {
+      throw new Error("Unable to get job status. The server may be temporarily unavailable.");
+    }
+
     const status = await statusResponse.json();
-    progressText.textContent = `${status.phase}: ${status.message}`;
-    progressBar.style.width = `${status.progress_percent}%`;
+    const phaseLabel = PHASE_LABELS[status.phase] || status.message || status.phase;
+    progressText.textContent = phaseLabel;
+    progressBar.style.width = `${status.progress_percent || 0}%`;
 
     if (status.status === "completed") {
-      const resultResponse = await apiFetch(`/api/v1/jobs/${jobId}/result`, { method: "GET" });
+      let resultResponse;
+      try {
+        resultResponse = await apiFetch(`/api/v1/jobs/${jobId}/result`, { method: "GET" });
+      } catch (e) {
+        throw new Error("Lost connection while retrieving results. Please try again.");
+      }
       if (!resultResponse.ok) {
-        throw new Error("Unable to get completed analysis result");
+        throw new Error("Unable to retrieve the completed analysis result.");
       }
       const wrapped = await resultResponse.json();
       return wrapped.result;
     }
+
     if (status.status === "failed") {
-      throw new Error(status.message || "Analysis failed");
+      throw new Error("Analysis failed. The video may be unsupported or corrupted.");
     }
+
     await sleep(1200);
   }
 }
 
 async function generateSessionKey() {
-  const response = await fetch("/api/v1/session-key", { method: "POST" });
+  let response;
+  try {
+    response = await fetch("/api/v1/session-key", { method: "POST" });
+  } catch (e) {
+    throw new Error("Unable to connect to the server. Please check your network and try again.");
+  }
   if (!response.ok) {
     const body = await response.text();
-    throw new Error(`Unable to generate session key: ${body}`);
+    throw new Error(`Unable to start session: ${body}`);
   }
   const payload = await response.json();
   sessionKeyRecord = {
@@ -112,16 +165,18 @@ function verdictColor(label) {
 }
 
 function plainMeaning(label, probability, confidence) {
+  const pct = (probability * 100).toFixed(1);
+  const cPct = (confidence * 100).toFixed(1);
   if (label === "tampered") {
-    return `The system found strong signs of manipulation (${(probability * 100).toFixed(1)}% tamper probability) with ${(confidence * 100).toFixed(1)}% evidence confidence.`;
+    return `Strong signs of manipulation detected — ${pct}% tamper probability with ${cPct}% evidence confidence. This video likely contains edited or fabricated content.`;
   }
   if (label === "suspicious") {
-    return `Some forensic signals are unusual (${(probability * 100).toFixed(1)}% tamper probability). Manual review is recommended.`;
+    return `Some forensic signals are unusual (${pct}% tamper probability). The video may have been edited. Manual review is recommended.`;
   }
   if (label === "authentic") {
-    return `No strong manipulation pattern was found (${(probability * 100).toFixed(1)}% tamper probability).`;
+    return `No strong manipulation pattern was found (${pct}% tamper probability). The video appears consistent with an unedited recording.`;
   }
-  return "Evidence quality is not high enough for a fully reliable conclusion.";
+  return `Evidence quality is insufficient for a definitive conclusion (${pct}% tamper probability). More footage or a higher-quality source may help.`;
 }
 
 function explainCheck(check) {
@@ -147,7 +202,7 @@ function renderCheckBars(result) {
     const score = Math.max(0, Math.min(100, (check.score || 0) * 100));
     const conf = Math.max(0, Math.min(100, (check.confidence || 0) * 100));
     wrapper.innerHTML = `
-      <h4>${check.name}</h4>
+      <h4>${humanizeCheckName(check.name)}</h4>
       <p class="muted">${explainCheck(check)}</p>
       <div class="bar-row">
         <span>Anomaly score</span>
@@ -175,7 +230,7 @@ function renderTimeline(result) {
   );
 
   if (segments.length === 0) {
-    document.getElementById("timeline-track").innerHTML = "<p class='muted' style='padding:6px 10px;'>No suspicious segments detected.</p>";
+    timelineTrack.innerHTML = "<p class='muted' style='padding:6px 10px;'>No suspicious segments detected.</p>";
     const li = document.createElement("li");
     li.textContent = "No suspicious time windows were flagged by enabled detectors.";
     segmentList.appendChild(li);
@@ -187,15 +242,16 @@ function renderTimeline(result) {
       const start = Math.max(0, Math.min(100, (segment.start_s / duration) * 100));
       const end = Math.max(start, Math.min(100, (segment.end_s / duration) * 100));
       const width = Math.max(0.4, end - start);
-      const title = `[${segment.category}] ${segment.start_s.toFixed(2)}s-${segment.end_s.toFixed(2)}s (confidence ${segment.confidence.toFixed(2)})`;
+      const conf = (segment.confidence || 0).toFixed(2);
+      const title = `[${segment.category}] ${segment.start_s.toFixed(2)}s–${segment.end_s.toFixed(2)}s (confidence ${conf})`;
       return `<div class="timeline-block" style="left:${start.toFixed(2)}%;width:${width.toFixed(2)}%" title="${title}"></div>`;
     })
     .join("");
-  document.getElementById("timeline-track").innerHTML = blocks;
+  timelineTrack.innerHTML = blocks;
 
   segments.forEach((segment) => {
     const li = document.createElement("li");
-    li.textContent = `[${segment.category}] ${segment.start_s.toFixed(2)}s - ${segment.end_s.toFixed(2)}s (confidence ${segment.confidence.toFixed(2)}).`;
+    li.textContent = `[${segment.category}] ${segment.start_s.toFixed(2)}s – ${segment.end_s.toFixed(2)}s (confidence ${(segment.confidence || 0).toFixed(2)}).`;
     segmentList.appendChild(li);
   });
 }
@@ -207,7 +263,7 @@ function buildGraphicalReportHtml(result) {
       const conf = Math.max(0, Math.min(100, (check.confidence || 0) * 100));
       return `
       <div class="check">
-        <h3>${check.name}</h3>
+        <h3>${humanizeCheckName(check.name)}</h3>
         <p>${explainCheck(check)}</p>
         <div class="bar"><div class="fill score" style="width:${score.toFixed(1)}%"></div></div>
         <p><strong>Anomaly score:</strong> ${score.toFixed(1)}%</p>
@@ -220,13 +276,13 @@ function buildGraphicalReportHtml(result) {
   const explanation = (result.explanation || []).map((line) => `<li>${line}</li>`).join("");
   const segments = (result.suspicious_segments || [])
     .slice(0, 30)
-    .map((segment) => `<li>[${segment.category}] ${segment.start_s.toFixed(2)}s - ${segment.end_s.toFixed(2)}s (confidence ${segment.confidence.toFixed(2)})</li>`)
+    .map((segment) => `<li>[${segment.category}] ${segment.start_s.toFixed(2)}s – ${segment.end_s.toFixed(2)}s (confidence ${(segment.confidence || 0).toFixed(2)})</li>`)
     .join("");
   const probability = Math.max(0, Math.min(100, (result.tamper_probability || 0) * 100));
   return `<!doctype html>
-<html><head><meta charset="utf-8"><title>quevidkit graphical report</title>
+<html><head><meta charset="utf-8"><title>quevidkit forensic report</title>
 <style>
-body{font-family:Arial,sans-serif;background:radial-gradient(circle at top,#18253e 0%,#08111f 62%,#050914 100%);color:#edf4ff;margin:0;padding:24px}
+body{font-family:Inter,Arial,sans-serif;background:radial-gradient(circle at top,#18253e 0%,#08111f 62%,#050914 100%);color:#edf4ff;margin:0;padding:24px}
 .shell{max-width:1100px;margin:0 auto}
 .card{background:rgba(16,24,39,0.94);border:1px solid #2d3c5a;border-radius:14px;padding:16px;margin-bottom:14px;box-shadow:0 18px 44px rgba(0,0,0,0.28)}
 .eyebrow{text-transform:uppercase;letter-spacing:0.18em;color:#8bd4ff;font-size:0.75rem;margin:0 0 10px}
@@ -243,8 +299,8 @@ ul{padding-left:20px}
 </style></head><body>
 <div class="shell">
 <div class="card">
-  <p class="eyebrow">Case file / graphical forensic report</p>
-  <h1>quevidkit investigation summary</h1>
+  <p class="eyebrow">quevidkit · Forensic Report</p>
+  <h1>Video Forensics Lab — Analysis Results</h1>
   <span class="badge">${String(result.label || "inconclusive").toUpperCase()}</span>
   <p>${plainMeaning(result.label, result.tamper_probability || 0, result.confidence || 0)}</p>
   <p><strong>Tamper probability:</strong> ${probability.toFixed(1)}%</p>
@@ -253,7 +309,7 @@ ul{padding-left:20px}
 </div>
 <div class="card"><h2>Plain-language explanation</h2><ul>${explanation || "<li>No explanation available.</li>"}</ul></div>
 <div class="card"><h2>Evidence checks</h2><div class="checks">${checks}</div></div>
-<div class="card"><h2>Suspicious segments</h2><ul>${segments || "<li>None</li>"}</ul></div>
+<div class="card"><h2>Suspicious segments</h2><ul>${segments || "<li>None detected.</li>"}</ul></div>
 </div>
 </body></html>`;
 }
@@ -263,7 +319,7 @@ function renderResult(result) {
   const label = result.label || "inconclusive";
   const probability = result.tamper_probability || 0;
   const confidence = result.confidence || 0;
-  verdictEl.textContent = `${label.toUpperCase()}`;
+  verdictEl.textContent = label.toUpperCase();
   verdictEl.style.background = verdictColor(label);
   plainMeaningEl.textContent = plainMeaning(label, probability, confidence);
   probabilityEl.textContent = `${(probability * 100).toFixed(1)}%`;
@@ -286,7 +342,6 @@ function renderResult(result) {
 
 downloadReportBtn.addEventListener("click", () => {
   if (!latestResult) {
-    alert("Run an analysis first.");
     return;
   }
   const htmlReport = buildGraphicalReportHtml(latestResult);
@@ -294,7 +349,7 @@ downloadReportBtn.addEventListener("click", () => {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `quevidkit_graphical_report_${Date.now()}.html`;
+  a.download = `quevidkit_report_${Date.now()}.html`;
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -303,10 +358,12 @@ downloadReportBtn.addEventListener("click", () => {
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
+  clearError();
+
   const fileInput = document.getElementById("video-file");
   const file = fileInput.files[0];
   if (!file) {
-    alert("Select a video file first.");
+    showError("Please select a video file before running the analysis.");
     return;
   }
 
@@ -321,16 +378,23 @@ form.addEventListener("submit", async (event) => {
   data.append("options", JSON.stringify(advancedOptions()));
 
   try {
-    const response = await apiFetch("/api/v1/jobs", { method: "POST", body: data });
+    let response;
+    try {
+      response = await apiFetch("/api/v1/jobs", { method: "POST", body: data });
+    } catch (e) {
+      throw new Error("Unable to connect to the server. Please check your network and try again.");
+    }
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(`Upload failed: ${errorText}`);
     }
     const job = await response.json();
     const result = await pollJob(job.job_id);
+    progressCard.classList.add("hidden");
     renderResult(result);
   } catch (error) {
-    alert(`Error: ${error.message}`);
+    progressCard.classList.add("hidden");
+    showError(error.message);
   } finally {
     analyzeBtn.disabled = false;
   }
