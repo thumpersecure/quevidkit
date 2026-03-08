@@ -3,17 +3,28 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>quevidkit forensic video tool</title>
+  <title>quevidkit forensic command deck</title>
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
   <main class="container">
-    <section class="card">
-      <h1>Forensic Video Tampering Detector</h1>
-      <p class="muted">
-        Upload a video to evaluate whether it was altered. The engine checks metadata, codec/container structure,
-        file size relationships, frame timing, missing/duplicate frames, and quality shifts.
+    <section class="card hero-card">
+      <p class="eyebrow">Evidence lab / full forensic console</p>
+      <h1>quevidkit Forensic Command Deck</h1>
+      <p class="muted lead">
+        Upload a video to open a deeper investigation. The engine checks metadata, codec and container structure,
+        packet timing, missing or duplicated frames, and abrupt quality shifts before assembling a case report.
       </p>
+      <div class="callout-grid">
+        <div class="note-panel">
+          <strong>Automatic access keys</strong>
+          <span>The hosted console issues session keys behind the scenes before it talks to the protected API.</span>
+        </div>
+        <div class="note-panel">
+          <strong>Evidence sweep</strong>
+          <span>Combine fast presets with deeper scans, then export a clean case summary for review.</span>
+        </div>
+      </div>
 
       <form id="upload-form">
         <label class="field">
@@ -53,7 +64,7 @@
           </div>
         </details>
 
-        <button id="analyze-btn" type="submit">Analyze video</button>
+        <button id="analyze-btn" type="submit">Run forensic scan</button>
       </form>
     </section>
 

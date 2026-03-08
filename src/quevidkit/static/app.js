@@ -17,6 +17,7 @@ const analyzeBtn = document.getElementById("analyze-btn");
 const downloadReportBtn = document.getElementById("download-report-btn");
 let sessionKeyRecord = null;
 let latestResult = null;
+const RISK_GRADIENT = "linear-gradient(90deg, #3dd68c 0%, #f6b73c 55%, #ff5a6b 100%)";
 
 function advancedOptions() {
   return {
@@ -104,10 +105,10 @@ async function apiFetch(path, init) {
 }
 
 function verdictColor(label) {
-  if (label === "tampered") return "#b00020";
-  if (label === "suspicious") return "#cc6600";
-  if (label === "authentic") return "#1f7a1f";
-  return "#555";
+  if (label === "tampered") return "#ff5a6b";
+  if (label === "suspicious") return "#f6b73c";
+  if (label === "authentic") return "#3dd68c";
+  return "#6f7d97";
 }
 
 function plainMeaning(label, probability, confidence) {
@@ -225,18 +226,25 @@ function buildGraphicalReportHtml(result) {
   return `<!doctype html>
 <html><head><meta charset="utf-8"><title>quevidkit graphical report</title>
 <style>
-body{font-family:Arial,sans-serif;background:#f5f6fa;color:#111;margin:20px}
-.card{background:#fff;border:1px solid #e2e2e8;border-radius:8px;padding:14px;margin-bottom:12px}
-.badge{display:inline-block;padding:6px 12px;border-radius:16px;color:#fff;background:${verdictColor(result.label)};font-weight:700}
-.meter{height:14px;border-radius:20px;background:#e8ebf3;overflow:hidden;margin-top:8px}
-.meter>div{height:14px;width:${probability.toFixed(1)}%;background:linear-gradient(90deg,#1f7a1f 0%,#cc6600 60%,#b00020 100%)}
+body{font-family:Arial,sans-serif;background:radial-gradient(circle at top,#18253e 0%,#08111f 62%,#050914 100%);color:#edf4ff;margin:0;padding:24px}
+.shell{max-width:1100px;margin:0 auto}
+.card{background:rgba(16,24,39,0.94);border:1px solid #2d3c5a;border-radius:14px;padding:16px;margin-bottom:14px;box-shadow:0 18px 44px rgba(0,0,0,0.28)}
+.eyebrow{text-transform:uppercase;letter-spacing:0.18em;color:#8bd4ff;font-size:0.75rem;margin:0 0 10px}
+.badge{display:inline-block;padding:7px 14px;border-radius:999px;color:#06111c;background:${verdictColor(result.label)};font-weight:700;letter-spacing:0.08em}
+.meter{height:14px;border-radius:999px;background:#0a1527;overflow:hidden;margin-top:10px;border:1px solid #263653}
+.meter>div{height:14px;width:${probability.toFixed(1)}%;background:${RISK_GRADIENT}}
 .checks{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px}
-.check{border:1px solid #e4e6ee;border-radius:8px;padding:10px}
-.bar{height:10px;border-radius:20px;background:#eceff6;overflow:hidden}
-.fill{height:10px}.score{background:#b00020}.conf{background:#1a4fd8}
+.check{border:1px solid #2d3c5a;border-radius:12px;padding:12px;background:rgba(8,17,31,0.78)}
+.bar{height:10px;border-radius:999px;background:#0a1527;overflow:hidden;border:1px solid #22314d}
+.fill{height:10px}.score{background:#ff5a6b}.conf{background:#5aa9ff}
+p,li{color:#c4d3ea;line-height:1.55}
+h1,h2,h3,strong{color:#edf4ff}
+ul{padding-left:20px}
 </style></head><body>
-<h1>quevidkit graphical forensic report</h1>
+<div class="shell">
 <div class="card">
+  <p class="eyebrow">Case file / graphical forensic report</p>
+  <h1>quevidkit investigation summary</h1>
   <span class="badge">${String(result.label || "inconclusive").toUpperCase()}</span>
   <p>${plainMeaning(result.label, result.tamper_probability || 0, result.confidence || 0)}</p>
   <p><strong>Tamper probability:</strong> ${probability.toFixed(1)}%</p>
@@ -246,6 +254,7 @@ body{font-family:Arial,sans-serif;background:#f5f6fa;color:#111;margin:20px}
 <div class="card"><h2>Plain-language explanation</h2><ul>${explanation || "<li>No explanation available.</li>"}</ul></div>
 <div class="card"><h2>Evidence checks</h2><div class="checks">${checks}</div></div>
 <div class="card"><h2>Suspicious segments</h2><ul>${segments || "<li>None</li>"}</ul></div>
+</div>
 </body></html>`;
 }
 
