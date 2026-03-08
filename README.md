@@ -43,6 +43,30 @@ Open `http://localhost:8000`.
 
 ---
 
+## Web app presets and settings
+
+The web UI (both the hosted GitHub Pages app and the self-hosted `qvk serve` version) includes an **Analysis preset** dropdown inside the *Analysis settings* panel:
+
+| Preset | Sample interval | Max frames | Sensitivity | Description |
+|---|---|---|---|---|
+| **Fast** | 1.0 s | 500 | 0.50 | Quick scan with lowest accuracy — good for a first pass. |
+| **Balanced** | 0.5 s | 1 000 | 0.70 | Default scan — recommended for most videos. |
+| **Deep** | 0.2 s | 2 000 | 0.85 | Thorough scan with highest accuracy — takes longer. |
+
+Selecting a preset automatically fills in the three advanced numeric fields.  You can still override them manually after choosing a preset.
+
+### Parameter reference
+
+- **Sample interval** — time in seconds between sampled frames. Smaller values analyse more frames but increase processing time.
+- **Maximum frames** — hard cap on the number of frames the engine will inspect.
+- **Sensitivity** — detection threshold (0–1). Higher values flag more anomalies but may increase false positives.
+
+### Demo video
+
+The GitHub Pages app includes a **"Try demo video"** button next to the file input.  Clicking it fetches a short sample clip (`docs/assets/demo.mp4`) and loads it into the file picker automatically so you can test the analysis pipeline without providing your own video.
+
+---
+
 ## CLI usage
 
 ```bash
@@ -188,10 +212,40 @@ Each report includes:
 
 ---
 
+## Installing ffprobe / ffmpeg
+
+quevidkit requires `ffprobe` (part of the FFmpeg suite) on your system PATH.
+
+**Debian / Ubuntu:**
+
+```bash
+sudo apt update && sudo apt install -y ffmpeg
+```
+
+**macOS (Homebrew):**
+
+```bash
+brew install ffmpeg
+```
+
+**Windows (prebuilt binaries):**
+
+Download from <https://ffmpeg.org/download.html> (or use `winget install ffmpeg`).  Make sure `ffmpeg.exe` and `ffprobe.exe` are in a directory listed in your `PATH`.
+
+**Verify installation:**
+
+```bash
+ffprobe -version
+```
+
+> **Note:** `ffprobe` must be callable directly (i.e. available on your system PATH).  If you installed FFmpeg to a custom location, add that directory to your `PATH` environment variable.
+
+---
+
 ## Requirements
 
 - Python 3.10+
-- `ffprobe` installed and available in PATH
+- `ffprobe` installed and available in PATH (see above)
 - Python dependencies from `pyproject.toml`
 
 ---
