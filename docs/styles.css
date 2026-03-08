@@ -394,6 +394,18 @@ details[open] > summary::after {
   padding: 0 16px 16px;
 }
 
+.advanced-grid .preset-field {
+  grid-column: 1 / -1;
+}
+
+.field small.muted {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.82rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
 .key-controls {
   margin-bottom: 0;
 }

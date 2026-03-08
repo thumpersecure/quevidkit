@@ -31,6 +31,9 @@ const remoteError = document.getElementById("remote-error");
 const remoteEndpointPreview = document.getElementById("remote-endpoint-preview");
 const remoteModePill = document.getElementById("remote-mode-pill");
 
+const analysisPreset = document.getElementById("analysis-preset");
+const demoVideoBtn = document.getElementById("demo-video-btn");
+
 const REMOTE_SESSION_PREFIX = "qvk.remote.session.";
 const REMOTE_BASE_URL_STORAGE_KEY = "qvk.remote.baseUrl";
 const FALLBACK_LIMIT = 10;
@@ -866,7 +869,7 @@ async function analyzeInBrowser(file, options) {
 
 async function createRemoteJob(baseUrl, file, options) {
   const payload = {
-    preset: "balanced",
+    preset: analysisPreset.value || "balanced",
     sample_fps: Number((1 / options.sampleInterval).toFixed(3)),
     max_frames: options.maxSamples,
     sensitivity: options.sensitivity
@@ -1051,6 +1054,46 @@ remoteApiUrlInput.addEventListener("change", () => {
   setRemoteError("");
   updateRemoteUrlHelper();
   renderRemoteSessionState();
+});
+
+// ── Analysis preset ─────────────────────────────────────────────────────────
+
+const PRESET_DEFAULTS = {
+  fast:     { sampleInterval: 1.0,  maxSamples: 500,  sensitivity: 0.5  },
+  balanced: { sampleInterval: 0.5,  maxSamples: 1000, sensitivity: 0.7  },
+  deep:     { sampleInterval: 0.2,  maxSamples: 2000, sensitivity: 0.85 }
+};
+
+analysisPreset.addEventListener("change", () => {
+  const preset = PRESET_DEFAULTS[analysisPreset.value];
+  if (!preset) return;
+  document.getElementById("sample-interval").value = preset.sampleInterval;
+  document.getElementById("max-samples").value = preset.maxSamples;
+  document.getElementById("sensitivity").value = preset.sensitivity;
+});
+
+// ── Demo video ──────────────────────────────────────────────────────────────
+
+demoVideoBtn.addEventListener("click", async () => {
+  demoVideoBtn.disabled = true;
+  demoVideoBtn.textContent = "Loading demo…";
+  try {
+    const resp = await fetch("./assets/demo.mp4");
+    if (!resp.ok) throw new Error("Could not fetch demo video.");
+    const blob = await resp.blob();
+    const file = new File([blob], "demo.mp4", { type: "video/mp4" });
+    const dataTransfer = new DataTransfer();
+    dataTransfer.items.add(file);
+    const fileInput = document.getElementById("video-file");
+    fileInput.files = dataTransfer.files;
+    fileInput.classList.add("has-file");
+    fileInput.dispatchEvent(new Event("change", { bubbles: true }));
+  } catch (err) {
+    setRemoteError("Demo video could not be loaded. Make sure assets/demo.mp4 exists.");
+  } finally {
+    demoVideoBtn.disabled = false;
+    demoVideoBtn.textContent = "Try demo video";
+  }
 });
 
 form.addEventListener("submit", async (event) => {

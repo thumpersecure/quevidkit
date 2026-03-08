@@ -36,6 +36,9 @@
           <span>Video file</span>
           <input id="video-file" type="file" accept="video/*" required>
         </label>
+        <div class="inline-actions" style="margin-top:-6px;margin-bottom:12px;">
+          <button id="demo-video-btn" type="button" class="secondary">Try demo video</button>
+        </div>
 
         <div class="mode-actions">
           <button id="analyze-browser-btn" type="submit" class="secondary" data-mode="browser">Quick Browser Check</button>
@@ -84,17 +87,29 @@
         <details class="advanced">
           <summary>Analysis settings</summary>
           <div class="advanced-grid">
+            <label class="field preset-field">
+              <span>Analysis preset</span>
+              <select id="analysis-preset">
+                <option value="fast">Fast</option>
+                <option value="balanced" selected>Balanced</option>
+                <option value="deep">Deep</option>
+              </select>
+              <small class="muted">Fast = quick scan (lowest accuracy) · Balanced = default scan · Deep = thorough scan (highest accuracy). Selecting a preset adjusts the parameters below automatically.</small>
+            </label>
             <label class="field">
               <span>Sample every N seconds</span>
               <input id="sample-interval" type="number" min="0.1" max="5" step="0.1" value="0.5">
+              <small class="muted">Smaller values analyse more frames but take longer.</small>
             </label>
             <label class="field">
               <span>Maximum frames to scan</span>
               <input id="max-samples" type="number" min="10" max="2000" step="1" value="240">
+              <small class="muted">Limits the number of frames analysed from the video.</small>
             </label>
             <label class="field">
               <span>Detection sensitivity</span>
               <input id="sensitivity" type="number" min="0.05" max="0.99" step="0.01" value="0.7">
+              <small class="muted">Higher values produce more detections but may increase false positives.</small>
             </label>
           </div>
         </details>
