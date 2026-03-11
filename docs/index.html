@@ -2,136 +2,163 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#08111f">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="description" content="Forensic video tampering detection – runs entirely on your device, no server required.">
   <title>Video Forensics Lab · quevidkit</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
   <main class="container">
+
+    <!-- ── Hero ─────────────────────────────────────────────────── -->
     <section class="card hero-card">
       <p class="eyebrow">quevidkit · Tampering Detection</p>
       <h1>Video Forensics Lab</h1>
       <p class="muted lead">
-        Upload a video clip to check whether it shows signs of editing or tampering.
-        Choose a quick in-browser check or a thorough server-based deep scan.
+        Upload a video to check for signs of editing or tampering.
+        Full forensic analysis runs directly on your device — no uploads, no server required.
       </p>
 
-      <div class="callout-grid">
-        <div class="note-panel">
-          <strong>Quick Browser Check</strong>
-          <span>Runs entirely in your browser — no server required. Detects frame-level continuity breaks and visual quality shifts in seconds.</span>
+      <div class="mode-cards">
+        <div class="mode-card">
+          <div class="mode-icon">1</div>
+          <div>
+            <strong>Client-Only</strong>
+            <span>Full analysis on-device. Parses the MP4 container, inspects timing, GOP structure, and frame quality — zero network traffic.</span>
+          </div>
         </div>
-        <div class="note-panel">
-          <strong>Deep Server Analysis</strong>
-          <span>Sends the clip to a quevidkit server for comprehensive forensic analysis, including codec consistency, packet timing, and structural anomalies.</span>
+        <div class="mode-card">
+          <div class="mode-icon">2</div>
+          <div>
+            <strong>Server Deep Scan</strong>
+            <span>Sends video to a quevidkit server for ffprobe and OpenCV analysis with codec-level forensics.</span>
+          </div>
+        </div>
+        <div class="mode-card">
+          <div class="mode-icon">3</div>
+          <div>
+            <strong>Hybrid</strong>
+            <span>Client analysis first, then enhances results with server checks when available.</span>
+          </div>
         </div>
       </div>
+    </section>
 
-      <p class="warning">
-        Deep scan securely manages server access automatically. The connection token is private to your browser session.
-      </p>
-
+    <!-- ── Analysis Form ────────────────────────────────────────── -->
+    <section class="card">
       <form id="analyze-form">
         <label class="field">
           <span>Video file</span>
           <input id="video-file" type="file" accept="video/*" required>
+          <small class="muted">MP4, MOV, MKV, AVI, WebM, or 3GP. Works best with MP4/MOV for deep container analysis.</small>
         </label>
-        <div class="inline-actions" style="margin-top:-6px;margin-bottom:12px;">
-          <button id="demo-video-btn" type="button" class="secondary">Try demo video</button>
-        </div>
 
-        <div class="mode-actions">
-          <button id="analyze-browser-btn" type="submit" class="secondary" data-mode="browser">Quick Browser Check</button>
-          <button id="analyze-remote-btn" type="submit" class="primary-action" data-mode="remote">Connect &amp; Deep Scan</button>
-        </div>
-        <p class="muted action-hint">Deep scan automatically manages connection in the background.</p>
+        <label class="field">
+          <span>Analysis mode</span>
+          <select id="mode-select">
+            <option value="client" selected>Client-Only (no server needed)</option>
+            <option value="hybrid">Hybrid (client + server)</option>
+            <option value="remote">Server Deep Scan</option>
+          </select>
+        </label>
 
-        <section class="case-panel">
-          <div class="section-heading">
-            <div>
-              <p class="eyebrow small">Server connection</p>
-              <h2>Analysis Server</h2>
+        <button id="analyze-btn" type="submit">Analyze Video</button>
+
+        <div id="error-box" class="error hidden"></div>
+
+        <!-- Server connection (shown for hybrid/remote) -->
+        <details class="advanced" id="server-panel">
+          <summary>Server connection</summary>
+          <div class="adv-body">
+            <label class="field">
+              <span>Server URL</span>
+              <input id="server-url" type="url" placeholder="http://127.0.0.1:8000">
+              <small class="muted">Address of a running quevidkit server. Only needed for Server or Hybrid modes.</small>
+            </label>
+            <div class="inline-row">
+              <button id="test-server-btn" type="button" class="secondary">Test Connection</button>
+              <span id="server-status" class="status-pill">Not connected</span>
             </div>
-            <span id="remote-mode-pill" class="status-pill">Browser check ready</span>
           </div>
+        </details>
 
-          <label class="field">
-            <span>Server address</span>
-            <input id="remote-api-url" type="url" placeholder="http://127.0.0.1:8000">
-            <small id="remote-api-help" class="muted">Enter the address of a running quevidkit server, for example: http://127.0.0.1:8000</small>
-            <small id="remote-endpoint-preview" class="muted"></small>
-          </label>
-
-          <div class="inline-actions">
-            <button id="use-local-fastapi-btn" type="button" class="secondary">Use localhost</button>
-            <button id="generate-session-btn" type="button">Test Connection</button>
-          </div>
-
-          <small id="remote-error" class="error hidden"></small>
-
-          <details class="advanced" style="margin-top:14px;">
-            <summary>Advanced: access key</summary>
-            <div style="padding:0 16px 16px;">
-              <div class="inline-actions">
-                <button id="copy-session-btn" type="button" class="secondary">Copy Key</button>
-                <button id="reveal-session-btn" type="button" class="secondary">Reveal Key</button>
-                <button id="clear-session-btn" type="button" class="ghost">Clear Key</button>
-              </div>
-              <input id="session-key-display" type="text" readonly placeholder="No connection token yet" style="margin-top:8px;">
-              <small id="session-key-status" class="muted" style="display:block;margin-top:6px;"></small>
-              <small id="session-quota-status" class="muted" style="display:block;margin-top:4px;"></small>
-            </div>
-          </details>
-        </section>
-
+        <!-- Analysis settings -->
         <details class="advanced">
           <summary>Analysis settings</summary>
-          <div class="advanced-grid">
-            <label class="field preset-field">
-              <span>Analysis preset</span>
+          <div class="adv-body settings-grid">
+            <label class="field full-width">
+              <span>Preset</span>
               <select id="analysis-preset">
                 <option value="fast">Fast</option>
                 <option value="balanced" selected>Balanced</option>
                 <option value="deep">Deep</option>
               </select>
-              <small class="muted">Fast = quick scan (lowest accuracy) · Balanced = default scan · Deep = thorough scan (highest accuracy). Selecting a preset adjusts the parameters below automatically.</small>
+              <small class="muted">Controls accuracy vs speed. Deep scans more frames with higher sensitivity.</small>
             </label>
             <label class="field">
-              <span>Sample every N seconds</span>
+              <span>Sample interval (s)</span>
               <input id="sample-interval" type="number" min="0.1" max="5" step="0.1" value="0.5">
-              <small class="muted">Smaller values analyse more frames but take longer.</small>
             </label>
             <label class="field">
-              <span>Maximum frames to scan</span>
+              <span>Max frames</span>
               <input id="max-samples" type="number" min="10" max="2000" step="1" value="240">
-              <small class="muted">Limits the number of frames analysed from the video.</small>
             </label>
             <label class="field">
-              <span>Detection sensitivity</span>
+              <span>Sensitivity</span>
               <input id="sensitivity" type="number" min="0.05" max="0.99" step="0.01" value="0.7">
-              <small class="muted">Higher values produce more detections but may increase false positives.</small>
             </label>
           </div>
         </details>
       </form>
     </section>
 
+    <!-- ── Progress ─────────────────────────────────────────────── -->
     <section id="progress-card" class="card hidden">
       <h2>Analyzing...</h2>
+      <p id="progress-phase" class="eyebrow small"></p>
       <p id="progress-text">Preparing...</p>
       <div class="progress-track"><div id="progress-bar" class="progress-bar"></div></div>
+
+      <div id="check-list" class="check-list">
+        <div class="check-status pending" data-check="container">
+          <span class="check-icon">&bull;</span>
+          Container &amp; Metadata
+        </div>
+        <div class="check-status pending" data-check="timing">
+          <span class="check-icon">&bull;</span>
+          Sample Timing
+        </div>
+        <div class="check-status pending" data-check="structure">
+          <span class="check-icon">&bull;</span>
+          Frame Structure
+        </div>
+        <div class="check-status pending" data-check="audio">
+          <span class="check-icon">&bull;</span>
+          Audio Consistency
+        </div>
+        <div class="check-status pending" data-check="visual">
+          <span class="check-icon">&bull;</span>
+          Visual Frame Analysis
+        </div>
+      </div>
     </section>
 
+    <!-- ── Results ──────────────────────────────────────────────── -->
     <section id="result-card" class="card hidden">
       <h2>Forensic Report</h2>
       <p><strong>Mode:</strong> <span id="result-mode"></span></p>
-      <div class="report-badge-wrap">
+
+      <div class="verdict-wrap">
         <span id="result-label" class="verdict-badge">INCONCLUSIVE</span>
         <p id="result-meaning" class="muted"></p>
       </div>
+
       <div class="metric-grid">
         <div class="metric-card">
-          <p>Tamper probability</p>
+          <p>Tamper Probability</p>
           <h3 id="result-probability"></h3>
         </div>
         <div class="metric-card">
@@ -139,27 +166,40 @@
           <h3 id="result-confidence"></h3>
         </div>
         <div class="metric-card">
-          <p>Estimated duration</p>
+          <p>Duration</p>
           <h3 id="result-duration"></h3>
         </div>
       </div>
+
       <div class="meter-track"><div id="result-meter" class="meter-fill"></div></div>
+
+      <p class="sha-line"><strong>SHA-256:</strong> <code id="result-sha"></code></p>
 
       <h3>Why this decision was made</h3>
       <ul id="result-explanation"></ul>
-      <h3>Evidence strength by check</h3>
-      <div id="result-check-bars" class="check-bars"></div>
-      <h3>Timeline of suspicious segments</h3>
+
+      <h3>Evidence by check</h3>
+      <div id="result-checks" class="check-bars"></div>
+
+      <h3>Suspicious segments</h3>
       <div id="result-timeline" class="timeline-track"></div>
       <ul id="result-segments"></ul>
-      <button id="download-report-btn" type="button">Download Full Report (HTML)</button>
+
+      <button id="download-btn" type="button">Download Report (HTML)</button>
+
       <details class="advanced">
-        <summary>Raw data (technical)</summary>
-        <pre id="result-signals"></pre>
+        <summary>Raw data</summary>
+        <pre id="result-raw"></pre>
       </details>
     </section>
+
+    <!-- ── Footer ───────────────────────────────────────────────── -->
+    <footer class="footer">
+      <p class="muted">quevidkit — forensic video analysis toolkit.
+        Results are evidence-based probability estimates, not legal certainty.</p>
+    </footer>
   </main>
 
-  <script src="./app.js"></script>
+  <script type="module" src="./app.js"></script>
 </body>
 </html>

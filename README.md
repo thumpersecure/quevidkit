@@ -115,32 +115,70 @@ Useful flags:
 
 ---
 
-## GitHub Pages app (static)
+## GitHub Pages app (mobile forensics)
 
-A static GitHub Pages frontend is included in `docs/`.
+A full-featured forensic analysis frontend is included in `docs/`. It runs entirely on GitHub Pages with **zero server requirements** for the primary analysis mode.
 
-- `docs/index.html`
-- `docs/styles.css`
-- `docs/app.js`
+### Architecture
 
-It supports:
+```
+docs/
+├── index.html          # Mobile-first responsive UI
+├── styles.css          # Touch-optimized responsive styles
+├── app.js              # ES module orchestrator
+└── lib/
+    ├── mp4-parser.js   # Binary MP4/MOV container parser (ISO 14496-12)
+    ├── checks.js       # 5 forensic check modules
+    ├── scoring.js      # Score fusion (ported from Python backend)
+    ├── report.js       # Downloadable HTML report generator
+    └── ui.js           # DOM rendering and progress management
+```
 
-- **Browser mode** (no backend): client-side frame continuity/quality checks.
-- **Remote API mode** (optional): sends upload to your FastAPI backend for full forensic analysis.
-- **Session key generation button**: creates per-user, per-session keys (no hardcoded API keys in repo).
-- **Graphical non-JSON report view** for non-technical users, with downloadable HTML output.
+### Three analysis modes
 
-To enable GitHub Pages:
+| Mode | How it works | Requirements |
+|------|-------------|--------------|
+| **Client-Only** | Full forensic analysis runs entirely in the browser. Parses the MP4 binary container, inspects sample timing tables, GOP structure, frame quality, and audio consistency. | None — works offline after page load. |
+| **Server Deep Scan** | Sends video to a quevidkit backend for ffprobe + OpenCV analysis. | Running `qvk serve` instance. |
+| **Hybrid** | Client-side analysis first, then enhances results with server checks when a backend is available. | Optional `qvk serve` instance. |
 
-1. Go to repository **Settings -> Pages**
+### Client-side forensic checks (no server needed)
+
+The client-only mode performs **5 independent forensic checks** by parsing the video file binary directly in the browser:
+
+1. **Container & Metadata** — Parses MP4/MOV atoms (ftyp, moov, mvhd, tkhd, mdhd, stsd, etc.), checks duration consistency, bitrate validation, creation/modification date gaps, editing software markers (Adobe, CapCut, DaVinci, FFmpeg, etc.), edit list complexity, moov/mdat ordering, and free/skip box count.
+
+2. **Sample Timing** — Reads the stts (time-to-sample) and ctts (composition time offset) tables directly from the binary container. Detects variable frame rates, timing anomalies, and timestamp discontinuities without ffprobe.
+
+3. **Frame Structure (GOP)** — Analyzes the stss (sync sample) table for keyframe distribution, computes GOP interval coefficient of variation, checks sample size outliers via stsz, and detects multiple codec entries.
+
+4. **Visual Frame Analysis** — Extracts frames via Canvas, computes dHash perceptual hashes, Laplacian blur variance, 8×8 blockiness metrics, and luminance histogram correlation. Detects duplicate frames, missing frames, quality shifts, and histogram breaks.
+
+5. **Audio Consistency** — Cross-checks audio/video track durations, audio frame timing regularity, and audio edit list complexity.
+
+All checks feed into the same score fusion engine used by the Python backend (logistic regression with quality gating and sensitivity control).
+
+### Mobile optimization
+
+- Touch-friendly 48px minimum tap targets
+- Safe area insets for notch/island phones
+- 16px font inputs to prevent iOS zoom
+- Progressive progress UI with per-check status indicators
+- Memory-efficient: releases ArrayBuffer after container parsing
+- Responsive from 320px to desktop widths
+
+### Deploying to GitHub Pages
+
+1. Go to repository **Settings → Pages**
 2. Under **Build and deployment**, set:
    - Source: **Deploy from a branch**
    - Branch: your default branch
    - Folder: `/docs`
 3. Save, then open the Pages URL GitHub provides.
 
-Note: browser-only mode cannot run full ffprobe packet/container internals.  
-For comprehensive analysis use Remote API mode against a deployed `qvk serve` backend.
+URL parameters:
+- `?mode=client|hybrid|remote` — set initial analysis mode
+- `?api=https://your-api.example.com` — prefill server URL
 
 ---
 
