@@ -580,6 +580,38 @@ details[open] > summary::after { transform: rotate(-180deg); }
   color: #4a5568;
 }
 
+.ts-brand-footer {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+
+.ts-brand-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #8b8b9e;
+  text-decoration: none;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  transition: color 0.2s;
+}
+
+.ts-brand-link:hover {
+  color: #a78bfa;
+}
+
+.ts-gh-icon {
+  width: 16px;
+  height: 16px;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+
+.ts-brand-link:hover .ts-gh-icon {
+  opacity: 1;
+}
+
 /* ── Hidden ───────────────────────────────────────────────────── */
 
 .hidden { display: none !important; }
