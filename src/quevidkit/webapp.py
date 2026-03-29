@@ -419,7 +419,7 @@ async def index(request: Request) -> HTMLResponse:
 
 @app.get("/api/health")
 async def health() -> dict[str, str]:
-    return {"status": "ok", "version": "0.2.0", "service": "quevidkit"}
+    return {"status": "ok", "version": "0.3.0", "service": "quevidkit"}
 
 
 @app.post("/api/v1/session-key")
