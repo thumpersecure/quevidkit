@@ -15,6 +15,13 @@ quevidkit is a forensic video tampering analysis toolkit with:
   - packet timing discontinuities
   - missing/duplicated frame signals
   - abrupt quality changes (blur/blockiness shifts)
+  - **compression consistency** across video segments
+  - **scene-cut / GOP alignment** forensics
+  - **audio spectral continuity** (spectral centroid, energy, ZCR discontinuities)
+  - **temporal noise floor** consistency
+  - **double compression detection** (I-frame size periodicity / autocorrelation)
+  - **Error Level Analysis (ELA)** on decoded frames
+  - **bitstream structure** (mid-stream parameter changes, color profile shifts)
 
 ## Important forensic note
 
@@ -55,7 +62,7 @@ The web UI (both the hosted GitHub Pages app and the self-hosted `qvk serve` ver
 |---|---|---|---|---|
 | **Fast** | 1.0 s | 500 | 0.50 | Quick scan with lowest accuracy — good for a first pass. |
 | **Balanced** | 0.5 s | 1 000 | 0.70 | Default scan — recommended for most videos. |
-| **Deep** | 0.2 s | 2 000 | 0.85 | Thorough scan with highest accuracy — takes longer. |
+| **Deep** | 0.2 s | 2 000 | 0.85 | Thorough scan with highest accuracy — runs 7 additional advanced forensic checks. |
 
 Selecting a preset automatically fills in the three advanced numeric fields.  You can still override them manually after choosing a preset.
 
@@ -64,6 +71,22 @@ Selecting a preset automatically fills in the three advanced numeric fields.  Yo
 - **Sample interval** — time in seconds between sampled frames. Smaller values analyse more frames but increase processing time.
 - **Maximum frames** — hard cap on the number of frames the engine will inspect.
 - **Sensitivity** — detection threshold (0–1). Higher values flag more anomalies but may increase false positives.
+
+### Advanced forensic checks (Deep preset)
+
+The **Deep** preset enables `enable_advanced_forensics=True`, which activates 7 additional server-side forensic checks on top of the 4 base checks:
+
+| # | Check | Category | What it detects |
+|---|-------|----------|-----------------|
+| 5 | **Compression Consistency** | codec | Splits the video into temporal windows and compares packet-size distributions per frame type (I/P/B). A re-encoded segment shifts the distribution, producing a detectable statistical anomaly. |
+| 6 | **Scene Cut Forensics** | timing | Runs ffmpeg scene-change detection and correlates scene cuts with GOP (keyframe) boundaries. Legitimate cuts usually align with keyframes; spliced content often does not. Also detects suspicious scene-change clustering. |
+| 7 | **Audio Spectral Continuity** | audio | Extracts audio as PCM, computes per-window spectral features (RMS energy, spectral centroid, zero-crossing rate), and flags abrupt discontinuities via z-score analysis. Also detects suspicious short silence gaps. |
+| 8 | **Temporal Noise Consistency** | quality | Estimates per-frame noise floor via Laplacian std-dev and Sobel high-frequency energy. Different cameras/encoders produce different noise profiles, so a sudden shift indicates spliced source material. |
+| 9 | **Double Compression Detection** | codec | Analyzes P-frame size autocorrelation to detect periodic patterns left by a prior encoding pass with a different GOP interval. Also flags unusually high I-frame size variation. |
+| 10 | **Error Level Analysis (ELA)** | quality | Re-compresses sampled frames at a fixed JPEG quality and measures the residual. Tampered regions that were re-saved at a different quality show different error levels. Detects temporal ELA shifts via z-score. |
+| 11 | **Bitstream Structure** | codec | Inspects mid-stream color-parameter changes, interlaced/progressive mode switches, frame-type size outlier rates, B-frame declaration consistency, and extradata integrity. |
+
+These checks are automatically enabled when `preset=deep` and can also be explicitly enabled via the `enable_advanced_forensics` option.
 
 ### Demo video
 
@@ -89,6 +112,7 @@ Useful flags:
 - `--no-packet-scan`
 - `--no-frame-scan`
 - `--no-quality-scan`
+- `--advanced-forensics` (enable advanced checks without using the deep preset)
 - `--debug` (includes heavy raw ffprobe payload in output)
 
 ---

@@ -24,10 +24,10 @@ def quality_gate(checks: list[CheckResult]) -> float:
     """Estimate evidence quality; low quality should favor inconclusive."""
     quality_signals: list[tuple[float, float]] = []
     for check in checks:
-        if check.name == "frame_quality_shift":
+        if check.name in ("frame_quality_shift", "ela_frame_analysis"):
             # High anomaly reduces available trust in quality-dependent checks.
             quality_signals.append((1.0 - clamp01(check.score), 1.0))
-        elif check.category in {"metadata", "codec", "timing", "quality"}:
+        elif check.category in {"metadata", "codec", "timing", "quality", "audio"}:
             quality_signals.append((clamp01(check.confidence), 0.6))
     return weighted_mean(quality_signals)
 
@@ -53,7 +53,7 @@ def fuse_scores(checks: list[CheckResult], sensitivity: float) -> tuple[float, f
     probability = 1.0 / (1.0 + math.exp(-logit))
 
     # Confidence depends on coverage and signal agreement.
-    coverage = min(1.0, len(checks) / 6.0)
+    coverage = min(1.0, len(checks) / 11.0)
     agreement = 1.0 - abs(base - 0.5) * 0.5
     confidence = clamp01((coverage * 0.7) + (gate * 0.2) + (agreement * 0.1))
 

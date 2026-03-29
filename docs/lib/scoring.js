@@ -42,7 +42,7 @@ export function fuseScores(checks, sensitivity = 0.7) {
   const logit = bias + base * 5.2 + gate * 0.4;
   const probability = 1 / (1 + Math.exp(-logit));
 
-  const coverage = Math.min(1, checks.length / 6);
+  const coverage = Math.min(1, checks.length / 11);
   const agreement = 1 - Math.abs(base - 0.5) * 0.5;
   const confidence = clamp01(coverage * 0.7 + gate * 0.2 + agreement * 0.1);
 
@@ -102,6 +102,13 @@ export function humanizeCheckName(name) {
     frame_structure_anomalies: 'Frame Structure',
     frame_quality_shift: 'Visual Quality Shifts',
     browser_temporal_continuity: 'Frame Continuity',
+    compression_consistency: 'Compression Consistency',
+    scene_cut_forensics: 'Scene Cut Forensics',
+    audio_spectral_continuity: 'Audio Spectral Analysis',
+    temporal_noise_consistency: 'Temporal Noise Analysis',
+    double_compression_detection: 'Double Compression Detection',
+    ela_frame_analysis: 'Error Level Analysis (ELA)',
+    bitstream_structure: 'Bitstream Structure',
   };
   return map[name] || name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
@@ -117,6 +124,14 @@ export function humanizeCategory(cat) {
     timing_break: 'Timing Break',
     timestamp_spike: 'Timestamp Spike',
     resolution_switch: 'Resolution Switch',
+    compression_shift: 'Compression Shift',
+    misaligned_scene_cut: 'Misaligned Scene Cut',
+    scene_cluster: 'Scene Cluster',
+    audio_spectral_break: 'Audio Spectral Break',
+    audio_silence_gap: 'Audio Silence Gap',
+    noise_shift: 'Noise Floor Shift',
+    ela_shift: 'ELA Residual Shift',
+    bitstream_param_change: 'Bitstream Parameter Change',
   };
   return map[cat] || (cat || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
