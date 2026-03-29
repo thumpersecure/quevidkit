@@ -383,14 +383,21 @@ def _run_analysis_job(job_id: str) -> None:
     if not job:
         return
     try:
-        job.touch(status="processing", phase="extracting_metadata", progress=15, message="Running metadata checks")
+        job.touch(status="processing", phase="extracting_metadata", progress=10, message="Running metadata checks")
         options = AnalysisOptions.from_dict(job.options)
         job.touch(
             status="processing",
             phase="forensic_analysis",
-            progress=55,
+            progress=25,
             message="Analyzing temporal and quality signals",
         )
+        if options.enable_advanced_forensics:
+            job.touch(
+                status="processing",
+                phase="advanced_forensics",
+                progress=45,
+                message="Running advanced forensic checks (compression, ELA, noise, audio spectral, scene analysis)",
+            )
         result = analyze_video(job.file_path, options=options)
         job.result = result.to_dict()
         job.touch(status="completed", phase="done", progress=100, message="Analysis complete")
@@ -412,7 +419,7 @@ async def index(request: Request) -> HTMLResponse:
 
 @app.get("/api/health")
 async def health() -> dict[str, str]:
-    return {"status": "ok", "version": "1.0", "service": "quevidkit"}
+    return {"status": "ok", "version": "0.2.0", "service": "quevidkit"}
 
 
 @app.post("/api/v1/session-key")

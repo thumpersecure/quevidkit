@@ -43,6 +43,13 @@ def _build_parser() -> argparse.ArgumentParser:
     analyze.add_argument("--no-packet-scan", action="store_true", help="Disable packet timing checks.")
     analyze.add_argument("--no-frame-scan", action="store_true", help="Disable frame structure checks.")
     analyze.add_argument("--no-quality-scan", action="store_true", help="Disable OpenCV frame quality checks.")
+    analyze.add_argument(
+        "--advanced-forensics",
+        action="store_true",
+        help="Enable advanced forensic checks (compression consistency, scene-cut forensics, "
+        "audio spectral analysis, temporal noise, double compression detection, ELA, "
+        "bitstream structure). Automatically enabled by --preset deep.",
+    )
     analyze.add_argument("--debug", action="store_true", help="Include raw probe payloads in JSON output.")
     analyze.add_argument("--json-out", help="Save the full JSON analysis report to this file.")
     analyze.add_argument(
@@ -113,6 +120,7 @@ def _command_analyze(args: argparse.Namespace) -> int:
             "enable_packet_scan": not args.no_packet_scan,
             "enable_frame_scan": not args.no_frame_scan,
             "enable_quality_scan": not args.no_quality_scan,
+            "enable_advanced_forensics": args.advanced_forensics,
             "include_debug_payload": args.debug,
         }
     )

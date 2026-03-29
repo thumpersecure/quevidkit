@@ -59,6 +59,7 @@ class AnalysisOptions:
     enable_packet_scan: bool = True
     enable_frame_scan: bool = True
     enable_quality_scan: bool = True
+    enable_advanced_forensics: bool = False
     include_debug_payload: bool = False
 
     @staticmethod
@@ -74,6 +75,7 @@ class AnalysisOptions:
             "enable_packet_scan",
             "enable_frame_scan",
             "enable_quality_scan",
+            "enable_advanced_forensics",
             "include_debug_payload",
         }
         kwargs = {k: v for k, v in payload.items() if k in known}
@@ -102,9 +104,11 @@ class AnalysisOptions:
         if self.preset == "fast":
             self.sample_fps = min(self.sample_fps, 1.0)
             self.max_frames = min(self.max_frames, 900)
+            self.enable_advanced_forensics = False
         elif self.preset == "deep":
             self.sample_fps = max(self.sample_fps, 4.0)
             self.max_frames = max(self.max_frames, 5000)
+            self.enable_advanced_forensics = True
 
 
 @dataclass
