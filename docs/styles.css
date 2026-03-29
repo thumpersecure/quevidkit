@@ -559,6 +559,27 @@ details[open] > summary::after { transform: rotate(-180deg); }
   font-size: 0.82rem;
 }
 
+.footer-links {
+  margin-top: 8px;
+  font-size: 0.8rem;
+}
+
+.footer-links a {
+  color: #7ba7e8;
+  text-decoration: none;
+  transition: color 0.15s;
+}
+
+.footer-links a:hover {
+  color: #a78bfa;
+  text-decoration: underline;
+}
+
+.footer-sep {
+  margin: 0 6px;
+  color: #4a5568;
+}
+
 /* ── Hidden ───────────────────────────────────────────────────── */
 
 .hidden { display: none !important; }
