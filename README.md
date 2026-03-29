@@ -151,21 +151,7 @@ Useful flags:
 
 A full-featured forensic analysis frontend is included in `docs/`. It runs entirely on GitHub Pages with **zero server requirements** for the primary analysis mode.
 
-### Architecture
-
 ```
-docs/
-├── index.html          # Mobile-first responsive UI
-├── styles.css          # Touch-optimized responsive styles
-├── app.js              # ES module orchestrator
-└── lib/
-    ├── mp4-parser.js   # Binary MP4/MOV container parser (ISO 14496-12)
-    ├── checks.js       # 5 forensic check modules
-    ├── scoring.js      # Score fusion with corroboration & lone-wolf penalty (ported from Python)
-    ├── report.js       # Downloadable HTML report generator
-    └── ui.js           # DOM rendering and progress management
-```
-
 ### Three analysis modes
 
 | Mode | How it works | Requirements |
@@ -199,62 +185,14 @@ All checks feed into the same score fusion engine used by the Python backend —
 - Memory-efficient: releases ArrayBuffer after container parsing
 - Responsive from 320px to desktop widths
 
-### Deploying to GitHub Pages
 
-1. Go to repository **Settings → Pages**
-2. Under **Build and deployment**, set:
-   - Source: **Deploy from a branch**
-   - Branch: your default branch
-   - Folder: `/docs`
-3. Save, then open the Pages URL GitHub provides.
-
-URL parameters:
+## URL parameters:
 - `?mode=client|hybrid|remote` — set initial analysis mode
 - `?api=https://your-api.example.com` — prefill server URL
 
 ---
 
-## API key/session-key security model
 
-- There are **no hardcoded API keys** in this repository.
-- The backend issues **ephemeral session keys** via:
-  - `POST /api/v1/session-key`
-- Protected endpoints (`/api/v1/jobs*`) require:
-  - `X-Session-Key: <generated_key>`
-- Keys are client-bound and expire automatically.
-- Generation is rate-limited by default to **10 keys per window**.
-- Each generated key has a default **job quota of 10**.
-
-### Configure security (server env vars)
-
-```bash
-# Required in production (do not commit secrets)
-export QVK_SESSION_KEY_SECRET="replace-with-strong-random-secret"
-
-# Optional security controls
-export QVK_SESSION_KEY_TTL_SECONDS=3600
-export QVK_SESSION_KEY_GEN_LIMIT=10
-export QVK_SESSION_KEY_GEN_WINDOW_SECONDS=3600
-export QVK_SESSION_KEY_JOB_LIMIT=10
-
-# For GitHub Pages -> backend remote mode (CORS)
-export QVK_CORS_ALLOW_ORIGINS="https://<your-user>.github.io"
-```
-
-### How users get a key in GitHub Pages UI
-
-1. Open the GitHub Pages app.
-2. Enable **Use Remote API**.
-3. Set FastAPI base URL:
-   - Enter manually (example: `https://api.example.com`), or
-   - click **Use Local FastAPI URL** (`http://127.0.0.1:8000`) for local development.
-4. Confirm the endpoint preview (`.../api/v1/session-key`) shown by the UI.
-5. Click **Generate Session Key**.
-6. Run analysis (the key is stored in `sessionStorage` for that browser session).
-
-Tip: you can prefill the Pages app URL with query params:
-- `?api=https://your-api.example.com`
-- `?remote=1` to enable Remote API mode by default
 
 ### cURL example
 
