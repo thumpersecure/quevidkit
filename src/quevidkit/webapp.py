@@ -517,4 +517,11 @@ async def delete_job(request: Request, job_id: str) -> dict[str, str]:
 def run() -> None:
     import uvicorn
 
-    uvicorn.run("quevidkit.webapp:app", host="0.0.0.0", port=8000, reload=False)
+    uvicorn.run(
+        "quevidkit.webapp:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=False,
+        proxy_headers=True,
+        forwarded_allow_ips="*",
+    )
