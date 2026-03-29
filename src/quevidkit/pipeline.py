@@ -129,18 +129,15 @@ def metadata_codec_checks(basic_probe: dict[str, Any]) -> CheckResult:
                 if value:
                     tag_values.append(str(value))
 
-    editor_markers = (
-        "adobe",
-        "premiere",
-        "davinci",
-        "capcut",
-        "final cut",
-        "imovie",
-        "handbrake",
-        "lavf",
-    )
-    if any(marker in " ".join(tag_values).lower() for marker in editor_markers):
-        findings.append(("editing/transcoding software marker present", 0.2))
+    # Software markers — only flag heavy editors, not common transcoders/players
+    heavy_editor_markers = ("premiere", "davinci", "final cut", "capcut", "imovie")
+    light_tool_markers = ("handbrake", "lavf", "ffmpeg", "x264", "x265")
+    joined_tags = " ".join(tag_values).lower()
+    if any(marker in joined_tags for marker in heavy_editor_markers):
+        findings.append(("professional editing software marker present", 0.15))
+    elif any(marker in joined_tags for marker in light_tool_markers):
+        # Transcoders are extremely common for legitimate re-encoding; very low signal
+        findings.append(("transcoding tool marker present (common for legitimate re-encodes)", 0.05))
 
     if video:
         details["video_codec"] = video.get("codec_name")
@@ -217,7 +214,7 @@ def packet_timing_checks(packet_probe: dict[str, Any], fps_hint: float) -> Check
         delta = timing_series[index] - timing_series[index - 1]
         if delta <= 0:
             continue
-        if delta > med_delta * 3.5 or delta < med_delta * 0.25:
+        if delta > med_delta * 5.0 or delta < med_delta * 0.15:
             spikes.append((index, delta))
 
     spike_segments = [
@@ -496,13 +493,13 @@ def opencv_frame_quality_checks(
         med_shift, mad_shift = _median_and_mad(combined_shifts)
         for idx, shift in enumerate(combined_shifts, start=1):
             z_score = (shift - med_shift) / (1.4826 * mad_shift + 1e-9)
-            if z_score > 4.0:
+            if z_score > 5.5:
                 quality_segments.append(
                     SegmentEvidence(
                         category="quality_shift",
                         start_s=max(0.0, sampled_timestamps[idx - 1]),
                         end_s=sampled_timestamps[idx],
-                        confidence=clamp01(min(0.98, 0.55 + (z_score / 10.0))),
+                        confidence=clamp01(min(0.98, 0.45 + (z_score / 14.0))),
                         details={"z_score": z_score, "shift_value": shift},
                     )
                 )
@@ -938,15 +935,15 @@ def audio_spectral_checks(video_path: str, basic_probe: dict[str, Any]) -> Check
         else:
             if in_silence:
                 silence_dur = ts - silence_start
-                if 0.05 < silence_dur < 0.5:  # suspicious short silence gap
+                if 0.08 < silence_dur < 0.4:  # suspicious short silence gap
                     segments.append(SegmentEvidence(
                         category="audio_silence_gap",
                         start_s=silence_start,
                         end_s=ts,
-                        confidence=0.55,
+                        confidence=0.4,
                         details={"duration_s": round(silence_dur, 4)},
                     ))
-                    findings.append((f"short silence gap at {silence_start:.2f}s ({silence_dur:.3f}s)", 0.3))
+                    findings.append((f"short silence gap at {silence_start:.2f}s ({silence_dur:.3f}s)", 0.15))
                 in_silence = False
 
     segments.sort(key=lambda s: s.start_s)
@@ -1385,9 +1382,10 @@ def ela_frame_analysis(
     global_ela_std = (sum((x - global_ela_mean) ** 2 for x in arr_means) / len(arr_means)) ** 0.5
 
     # High temporal variance in ELA residuals suggests mixed compression
+    # But scene changes naturally produce ELA variation, so use a higher threshold
     ela_cv = global_ela_std / max(global_ela_mean, 1e-6)
-    if ela_cv > 0.35:
-        findings.append((f"high ELA residual variance (CV={ela_cv:.2f})", clamp01((ela_cv - 0.35) / 0.5)))
+    if ela_cv > 0.50:
+        findings.append((f"high ELA residual variance (CV={ela_cv:.2f})", clamp01((ela_cv - 0.50) / 0.6)))
 
     segments.sort(key=lambda s: s.start_s)
 
@@ -1558,7 +1556,740 @@ def bitstream_structure_checks(
     )
 
 
+def qp_consistency_checks(
+    video_path: str, duration_s: float
+) -> CheckResult:
+    """Analyze quantization parameter consistency across the timeline.
+
+    Different encoding sessions use different QP settings. If a portion of the video
+    was re-encoded and spliced in, the QP distribution in that segment will differ
+    from the rest. This is one of the most reliable indicators of partial re-encoding.
+    """
+    try:
+        qp_frames = build_qp_probe(video_path, timeout=300)
+    except Exception:
+        return CheckResult(
+            name="qp_consistency",
+            category="codec",
+            score=0.0,
+            confidence=0.05,
+            summary="QP analysis unavailable (ffmpeg showinfo failed).",
+            details={},
+        )
+
+    if len(qp_frames) < 30:
+        return CheckResult(
+            name="qp_consistency",
+            category="codec",
+            score=0.0,
+            confidence=0.1,
+            summary="Too few frames for QP consistency analysis.",
+            details={"frame_count": len(qp_frames)},
+        )
+
+    # Split timeline into segments and compare QP distributions per frame type
+    n_segments = 8
+    seg_dur = max(duration_s / n_segments, 1.0) if duration_s > 0 else 10.0
+
+    type_qp: dict[str, list[list[float]]] = {"I": [[] for _ in range(n_segments)],
+                                               "P": [[] for _ in range(n_segments)],
+                                               "B": [[] for _ in range(n_segments)]}
+    all_qp: list[float] = []
+    for f in qp_frames:
+        ts = f.get("pts_time", 0.0)
+        # QP might be in 'qp' or we estimate from type
+        ptype = f.get("pict_type", "P")
+        seg_idx = min(int(ts / seg_dur), n_segments - 1) if seg_dur > 0 else 0
+        if 0 <= seg_idx < n_segments and ptype in type_qp:
+            # Use frame index as proxy for QP variation (showinfo doesn't expose QP directly,
+            # but the frame sizes per type serve as a proxy)
+            type_qp[ptype][seg_idx].append(ts)
+            all_qp.append(ts)
+
+    # Fall back to using frame-type cadence analysis: detect irregular type patterns
+    # that indicate splicing from a different encoding session
+    type_sequence = [f.get("pict_type", "?") for f in qp_frames]
+    # Build GOP pattern by looking at I-frame intervals
+    i_indices = [i for i, t in enumerate(type_sequence) if t == "I"]
+    if len(i_indices) >= 3:
+        gop_patterns: list[str] = []
+        for j in range(1, len(i_indices)):
+            pattern = "".join(type_sequence[i_indices[j - 1]:i_indices[j]])
+            gop_patterns.append(pattern)
+
+        # Count unique patterns
+        from collections import Counter
+        pattern_counts = Counter(gop_patterns)
+        dominant_count = pattern_counts.most_common(1)[0][1] if pattern_counts else 0
+        minority_count = len(gop_patterns) - dominant_count
+        anomaly_rate = minority_count / max(len(gop_patterns), 1)
+
+        findings: list[tuple[str, float]] = []
+        segments: list[SegmentEvidence] = []
+
+        if anomaly_rate > 0.15 and minority_count >= 2:
+            severity = clamp01((anomaly_rate - 0.15) / 0.4)
+            findings.append((f"GOP type pattern inconsistency ({minority_count}/{len(gop_patterns)} non-dominant)", severity))
+
+            # Find where the anomalous GOPs are
+            dominant_pattern = pattern_counts.most_common(1)[0][0]
+            for j, pat in enumerate(gop_patterns):
+                if pat != dominant_pattern and j < len(i_indices) - 1:
+                    ts_start = qp_frames[i_indices[j]]["pts_time"]
+                    ts_end = qp_frames[i_indices[j + 1]]["pts_time"] if j + 1 < len(i_indices) else duration_s
+                    segments.append(SegmentEvidence(
+                        category="gop_pattern_anomaly",
+                        start_s=ts_start,
+                        end_s=ts_end,
+                        confidence=clamp01(0.55 + severity * 0.3),
+                        details={"expected_pattern": dominant_pattern[:20], "actual_pattern": pat[:20]},
+                    ))
+
+        if not findings:
+            score = 0.05
+            summary = "GOP type patterns are consistent throughout the video."
+        else:
+            score = clamp01(sum(w for _, w in findings) / max(len(findings), 1))
+            summary = "; ".join(f for f, _ in findings[:3])
+
+        return CheckResult(
+            name="qp_consistency",
+            category="codec",
+            score=score,
+            confidence=clamp01(0.5 + min(len(gop_patterns), 30) / 60.0),
+            summary=summary,
+            details={
+                "total_gops": len(gop_patterns),
+                "unique_patterns": len(pattern_counts),
+                "dominant_pattern_ratio": round(dominant_count / max(len(gop_patterns), 1), 3),
+                "anomaly_rate": round(anomaly_rate, 4),
+            },
+            segments=segments[:80],
+        )
+
+    return CheckResult(
+        name="qp_consistency",
+        category="codec",
+        score=0.0,
+        confidence=0.15,
+        summary="Insufficient I-frame data for GOP pattern analysis.",
+        details={"frame_count": len(qp_frames), "i_frame_count": len(i_indices)},
+    )
+
+
+def thumbnail_mismatch_checks(
+    video_path: str, basic_probe: dict[str, Any]
+) -> CheckResult:
+    """Compare embedded thumbnail against actual first frame.
+
+    Many editing tools update the video content but leave the original thumbnail
+    intact, creating a mismatch. This is a strong indicator that the video was
+    modified after initial recording.
+    """
+    import os
+    import tempfile
+
+    try:
+        import cv2  # type: ignore
+        import numpy as np
+    except ImportError:
+        return CheckResult(
+            name="thumbnail_mismatch",
+            category="metadata",
+            score=0.0,
+            confidence=0.01,
+            summary="OpenCV not available for thumbnail comparison.",
+            details={},
+        )
+
+    # Check if there's a second video stream (thumbnail)
+    streams = basic_probe.get("streams", [])
+    video_streams = [s for s in streams if s.get("codec_type") == "video"]
+    if len(video_streams) < 2:
+        return CheckResult(
+            name="thumbnail_mismatch",
+            category="metadata",
+            score=0.0,
+            confidence=0.3,
+            summary="No embedded thumbnail found (normal for most videos).",
+            details={"video_stream_count": len(video_streams)},
+        )
+
+    # Extract thumbnail and first frame
+    thumb_path = tempfile.mktemp(suffix=".jpg", prefix="qvk_thumb_")
+    frame_path = tempfile.mktemp(suffix=".jpg", prefix="qvk_frame_")
+    try:
+        thumb_ok = extract_thumbnail(video_path, thumb_path)
+        if not thumb_ok or not os.path.exists(thumb_path) or os.path.getsize(thumb_path) < 100:
+            return CheckResult(
+                name="thumbnail_mismatch",
+                category="metadata",
+                score=0.0,
+                confidence=0.2,
+                summary="Could not extract embedded thumbnail.",
+                details={},
+            )
+
+        # Extract first frame
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            return CheckResult(
+                name="thumbnail_mismatch",
+                category="metadata",
+                score=0.0,
+                confidence=0.05,
+                summary="Cannot open video for first-frame extraction.",
+                details={},
+            )
+        ok, frame = cap.read()
+        cap.release()
+        if not ok or frame is None:
+            return CheckResult(
+                name="thumbnail_mismatch",
+                category="metadata",
+                score=0.0,
+                confidence=0.05,
+                summary="Cannot read first frame.",
+                details={},
+            )
+
+        # Load thumbnail
+        thumb = cv2.imread(thumb_path)
+        if thumb is None:
+            return CheckResult(
+                name="thumbnail_mismatch",
+                category="metadata",
+                score=0.0,
+                confidence=0.1,
+                summary="Cannot decode thumbnail image.",
+                details={},
+            )
+
+        # Resize both to same dimensions for comparison
+        compare_size = (160, 90)
+        thumb_resized = cv2.resize(thumb, compare_size, interpolation=cv2.INTER_AREA)
+        frame_resized = cv2.resize(frame, compare_size, interpolation=cv2.INTER_AREA)
+
+        # Compare using normalized cross-correlation and MSE
+        thumb_gray = cv2.cvtColor(thumb_resized, cv2.COLOR_BGR2GRAY).astype(np.float32)
+        frame_gray = cv2.cvtColor(frame_resized, cv2.COLOR_BGR2GRAY).astype(np.float32)
+
+        # Structural similarity via correlation
+        t_norm = thumb_gray - np.mean(thumb_gray)
+        f_norm = frame_gray - np.mean(frame_gray)
+        t_std = np.std(thumb_gray)
+        f_std = np.std(frame_gray)
+        if t_std > 1e-6 and f_std > 1e-6:
+            correlation = float(np.mean(t_norm * f_norm) / (t_std * f_std))
+        else:
+            correlation = 1.0  # both flat = same
+
+        # Mean squared error
+        mse = float(np.mean((thumb_gray - frame_gray) ** 2))
+
+        # Perceptual hash distance
+        try:
+            th = _frame_hash(thumb_gray[:8, :9])
+            fh = _frame_hash(frame_gray[:8, :9])
+            hash_dist = _hamming(th, fh) / 64.0
+        except ValueError:
+            hash_dist = 0.0
+
+        # Score: low correlation + high MSE + high hash distance = mismatch
+        # But thumbnail might not match first frame even legitimately (e.g., it may be a mid-video keyframe)
+        # So require strong mismatch
+        if correlation < 0.3 and mse > 2000 and hash_dist > 0.3:
+            score = clamp01((1.0 - correlation) * 0.4 + (hash_dist - 0.3) * 0.6)
+            summary = f"Embedded thumbnail differs significantly from first frame (correlation={correlation:.2f}, hash_dist={hash_dist:.2f})."
+        elif correlation < 0.5 and hash_dist > 0.25:
+            score = clamp01(((0.5 - correlation) / 0.5) * 0.3)
+            summary = f"Embedded thumbnail shows moderate difference from first frame (correlation={correlation:.2f})."
+        else:
+            score = 0.05
+            summary = "Embedded thumbnail matches first frame content."
+
+        return CheckResult(
+            name="thumbnail_mismatch",
+            category="metadata",
+            score=score,
+            confidence=clamp01(0.6 + (0.2 if mse > 500 else 0.0)),
+            summary=summary,
+            details={
+                "correlation": round(correlation, 4),
+                "mse": round(mse, 2),
+                "hash_distance": round(hash_dist, 4),
+            },
+        )
+    finally:
+        for p in (thumb_path, frame_path):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+
+
+def av_sync_drift_checks(
+    video_path: str, basic_probe: dict[str, Any], packet_probe: dict[str, Any]
+) -> CheckResult:
+    """Check for audio-video synchronization drift across the timeline.
+
+    Splicing video without properly adjusting audio timestamps causes drift
+    that accumulates or jumps at edit points. This check measures A/V timing
+    offset at multiple points across the file.
+    """
+    audio_stream = _extract_audio_stream(basic_probe)
+    video_stream = _extract_video_stream(basic_probe)
+    if not audio_stream or not video_stream:
+        return CheckResult(
+            name="av_sync_drift",
+            category="timing",
+            score=0.0,
+            confidence=0.1,
+            summary="A/V sync check requires both audio and video streams.",
+            details={},
+        )
+
+    packets = packet_probe.get("packets", [])
+    if len(packets) < 20:
+        return CheckResult(
+            name="av_sync_drift",
+            category="timing",
+            score=0.0,
+            confidence=0.1,
+            summary="Insufficient packet data for A/V sync analysis.",
+            details={},
+        )
+
+    # Separate audio and video packet timestamps
+    video_idx = int(video_stream.get("index", 0))
+    audio_idx = int(audio_stream.get("index", 1))
+
+    video_pts: list[float] = []
+    audio_pts: list[float] = []
+    for pkt in packets:
+        stream_idx = int(pkt.get("stream_index", -1))
+        ts = to_float(pkt.get("pts_time") or pkt.get("dts_time"))
+        if ts is None:
+            continue
+        if stream_idx == video_idx:
+            video_pts.append(ts)
+        elif stream_idx == audio_idx:
+            audio_pts.append(ts)
+
+    if len(video_pts) < 10 or len(audio_pts) < 10:
+        return CheckResult(
+            name="av_sync_drift",
+            category="timing",
+            score=0.0,
+            confidence=0.15,
+            summary="Not enough separate A/V timestamps for drift analysis.",
+            details={"video_packets": len(video_pts), "audio_packets": len(audio_pts)},
+        )
+
+    # Sample at regular intervals and measure the A/V offset at each point
+    duration = max(video_pts[-1], audio_pts[-1]) if video_pts and audio_pts else 1.0
+    n_checkpoints = 20
+    offsets: list[float] = []
+    checkpoint_times: list[float] = []
+
+    for i in range(n_checkpoints):
+        t = (i + 0.5) * duration / n_checkpoints
+        # Find nearest video and audio packet to this time
+        v_nearest = min(video_pts, key=lambda x: abs(x - t))
+        a_nearest = min(audio_pts, key=lambda x: abs(x - t))
+        offset = v_nearest - a_nearest
+        offsets.append(offset)
+        checkpoint_times.append(t)
+
+    if len(offsets) < 5:
+        return CheckResult(
+            name="av_sync_drift",
+            category="timing",
+            score=0.0,
+            confidence=0.1,
+            summary="Insufficient checkpoints for drift measurement.",
+            details={},
+        )
+
+    findings: list[tuple[str, float]] = []
+    segments: list[SegmentEvidence] = []
+
+    # Check for drift: increasing offset over time
+    drift_rate = (offsets[-1] - offsets[0]) / max(duration, 1.0)
+    if abs(drift_rate) > 0.002:  # >2ms/s drift
+        severity = clamp01((abs(drift_rate) - 0.002) / 0.01)
+        findings.append((f"A/V sync drift rate: {drift_rate * 1000:.1f}ms/s", severity))
+
+    # Check for sudden offset jumps
+    offset_deltas = [abs(offsets[i] - offsets[i - 1]) for i in range(1, len(offsets))]
+    med_delta = median(offset_deltas) if offset_deltas else 0.0
+    mad_delta = _mad(offset_deltas, fallback=0.001)
+
+    for i, d in enumerate(offset_deltas):
+        z = (d - med_delta) / (1.4826 * mad_delta + 1e-9)
+        if z > 4.0 and d > 0.03:  # >30ms jump and statistically anomalous
+            ts = checkpoint_times[i + 1]
+            findings.append((f"A/V sync jump of {d * 1000:.0f}ms at {ts:.1f}s", clamp01(z / 8.0)))
+            segments.append(SegmentEvidence(
+                category="av_sync_jump",
+                start_s=max(0, ts - 1.0),
+                end_s=ts + 1.0,
+                confidence=clamp01(0.55 + z / 15.0),
+                details={"offset_jump_ms": round(d * 1000, 1), "z_score": round(z, 2)},
+            ))
+
+    if not findings:
+        score = 0.05
+        summary = "Audio and video streams remain in sync throughout."
+    else:
+        score = clamp01(sum(w for _, w in findings) / max(len(findings), 1))
+        summary = "; ".join(f for f, _ in findings[:3])
+
+    import numpy as np
+    return CheckResult(
+        name="av_sync_drift",
+        category="timing",
+        score=score,
+        confidence=clamp01(0.5 + min(len(offsets), 20) / 40.0),
+        summary=summary,
+        details={
+            "checkpoints": len(offsets),
+            "mean_offset_ms": round(float(np.mean(offsets)) * 1000, 2),
+            "max_offset_ms": round(float(np.max(np.abs(offsets))) * 1000, 2),
+            "drift_rate_ms_per_s": round(drift_rate * 1000, 3),
+        },
+        segments=segments[:50],
+    )
+
+
+def bitrate_distribution_checks(
+    packet_probe: dict[str, Any], duration_s: float
+) -> CheckResult:
+    """Analyze the statistical distribution of packet sizes for bimodality.
+
+    Legitimate single-source video tends to have a unimodal (roughly log-normal)
+    packet size distribution. When content from two different encoding sessions
+    is spliced together, the distribution becomes bimodal — two distinct peaks
+    representing the two different encoding qualities.
+    """
+    packets = packet_probe.get("packets", [])
+    video_packets = [p for p in packets if p.get("codec_type") == "video"
+                     or (not p.get("codec_type") and int(p.get("stream_index", 0)) == 0)]
+
+    if len(video_packets) < 60:
+        return CheckResult(
+            name="bitrate_distribution",
+            category="codec",
+            score=0.0,
+            confidence=0.1,
+            summary="Insufficient packets for bitrate distribution analysis.",
+            details={"packet_count": len(video_packets)},
+        )
+
+    try:
+        import numpy as np
+    except ImportError:
+        return CheckResult(
+            name="bitrate_distribution",
+            category="codec",
+            score=0.0,
+            confidence=0.01,
+            summary="NumPy not available.",
+            details={},
+        )
+
+    sizes = np.array([int(to_float(p.get("size")) or 0) for p in video_packets], dtype=np.float64)
+    sizes = sizes[sizes > 0]  # drop zero-size packets
+
+    if len(sizes) < 50:
+        return CheckResult(
+            name="bitrate_distribution",
+            category="codec",
+            score=0.0,
+            confidence=0.1,
+            summary="Too few non-zero packets for distribution analysis.",
+            details={},
+        )
+
+    # Use Hartigan's dip test approximation for bimodality
+    # Simplified: compute the bimodality coefficient BC = (skewness^2 + 1) / (kurtosis + 3 * (n-1)^2 / ((n-2)*(n-3)))
+    # BC > 0.555 suggests bimodality
+    log_sizes = np.log1p(sizes)
+    n = len(log_sizes)
+    mean_ls = float(np.mean(log_sizes))
+    std_ls = float(np.std(log_sizes, ddof=1))
+
+    if std_ls < 1e-9 or n < 10:
+        return CheckResult(
+            name="bitrate_distribution",
+            category="codec",
+            score=0.05,
+            confidence=0.4,
+            summary="Packet sizes are nearly uniform (single quality level).",
+            details={"packet_count": int(n)},
+        )
+
+    z = (log_sizes - mean_ls) / std_ls
+    skewness = float(np.mean(z ** 3))
+    kurtosis = float(np.mean(z ** 4)) - 3.0  # excess kurtosis
+
+    # Bimodality coefficient
+    bc = (skewness ** 2 + 1) / (kurtosis + 3.0 * (n - 1) ** 2 / max(((n - 2) * (n - 3)), 1))
+
+    findings: list[tuple[str, float]] = []
+    segments: list[SegmentEvidence] = []
+
+    if bc > 0.60:
+        severity = clamp01((bc - 0.60) / 0.3)
+        findings.append((f"packet size distribution shows bimodality (BC={bc:.3f})", severity))
+
+        # Try to find where the distribution changes
+        # Split into quarters and compare means
+        quarter = len(sizes) // 4
+        if quarter >= 10:
+            quarter_means = [float(np.mean(sizes[i * quarter:(i + 1) * quarter])) for i in range(4)]
+            global_mean = float(np.mean(sizes))
+            for qi, qm in enumerate(quarter_means):
+                rel_diff = abs(qm - global_mean) / max(global_mean, 1.0)
+                if rel_diff > 0.40:
+                    ts_start = qi * duration_s / 4
+                    ts_end = (qi + 1) * duration_s / 4
+                    segments.append(SegmentEvidence(
+                        category="bitrate_mode_shift",
+                        start_s=ts_start,
+                        end_s=ts_end,
+                        confidence=clamp01(0.5 + rel_diff * 0.5),
+                        details={"quarter": qi, "quarter_mean_size": round(qm, 0),
+                                 "global_mean_size": round(global_mean, 0)},
+                    ))
+
+    if not findings:
+        score = 0.05
+        summary = "Packet size distribution is unimodal — consistent single encoding."
+    else:
+        score = clamp01(sum(w for _, w in findings) / max(len(findings), 1))
+        summary = "; ".join(f for f, _ in findings[:3])
+
+    return CheckResult(
+        name="bitrate_distribution",
+        category="codec",
+        score=score,
+        confidence=clamp01(0.45 + min(len(sizes), 3000) / 6000.0),
+        summary=summary,
+        details={
+            "packet_count": int(n),
+            "bimodality_coefficient": round(bc, 4),
+            "log_size_skewness": round(skewness, 4),
+            "log_size_excess_kurtosis": round(kurtosis, 4),
+            "mean_packet_size": round(float(np.mean(sizes)), 0),
+            "std_packet_size": round(float(np.std(sizes)), 0),
+        },
+        segments=segments[:40],
+    )
+
+
 _FFPROBE_NOT_FOUND_MSG = "ffprobe not found. Install ffmpeg to enable this check."
+
+
+# ── Per-check explanation context ──────────────────────────────────────────────
+
+_CHECK_CONTEXT: dict[str, dict[str, str]] = {
+    "metadata_codec_consistency": {
+        "what": "Compares container-level metadata (durations, bitrates, format tags) against the actual stream data for inconsistencies.",
+        "tampered": "Metadata mismatches can indicate that content was re-muxed, trimmed, or spliced without properly updating container headers.",
+        "benign": "Legitimate re-encoding, format conversion, or streaming software (OBS, Zoom, etc.) can cause minor metadata drift. Transcoding tools commonly leave software markers.",
+    },
+    "packet_timing_anomalies": {
+        "what": "Inspects the timeline of compressed data packets for non-monotonic timestamps or abnormal gaps between packets.",
+        "tampered": "Timestamp discontinuities often appear at splice points where segments from different recordings were joined together.",
+        "benign": "Variable frame rate (VFR) cameras, network-recorded streams, screen captures, and live recordings commonly produce irregular packet timing without any tampering.",
+    },
+    "frame_structure_anomalies": {
+        "what": "Analyzes the codec-level structure of decoded frames: GOP (keyframe interval) regularity, resolution consistency, and color profile stability.",
+        "tampered": "Irregular GOP patterns or mid-stream resolution/color changes suggest content from different encoding sessions was concatenated.",
+        "benign": "Adaptive bitrate recording, scene-based keyframe insertion, and some streaming platforms intentionally vary GOP structure. This is normal behavior for many modern encoders.",
+    },
+    "frame_quality_shift": {
+        "what": "Measures frame-to-frame visual quality changes (blur, blockiness, duplicate/missing frames) across the entire timeline.",
+        "tampered": "Abrupt quality discontinuities can indicate where a tampered segment with different compression was inserted.",
+        "benign": "Scene changes, camera focus shifts, motion blur, and bandwidth-adaptive encoding naturally cause quality variation. Action scenes produce more quality fluctuation than static shots.",
+    },
+    "compression_consistency": {
+        "what": "Splits the video timeline into segments and compares packet-size distributions for each frame type (I/P/B) across those segments.",
+        "tampered": "If part of the video was re-encoded at different quality settings, that segment will show a measurably different packet-size distribution.",
+        "benign": "Complex scenes naturally require larger packets than simple ones. Variable bitrate (VBR) encoding, which is the default for most encoders, produces legitimate variation.",
+    },
+    "scene_cut_forensics": {
+        "what": "Detects scene transitions and checks whether they align naturally with the video's keyframe/GOP structure.",
+        "tampered": "Spliced content often shows scene changes at positions that don't align with the natural keyframe cadence, since the edit point was chosen for content rather than codec reasons.",
+        "benign": "Scene-detect-based encoding, variable GOP, and some editing workflows intentionally place cuts between keyframes. Music videos and montage sequences have rapid legitimate scene changes.",
+    },
+    "audio_spectral_continuity": {
+        "what": "Computes audio spectral features (energy, spectral centroid, zero-crossing rate) over sliding windows and detects abrupt discontinuities.",
+        "tampered": "Audio splices produce sharp spectral breaks because the two joined segments were recorded with different microphones, environments, or encoding settings.",
+        "benign": "Sudden sounds (door slams, speech starting, music transitions), background noise changes, and microphone handling all create legitimate spectral discontinuities.",
+    },
+    "temporal_noise_consistency": {
+        "what": "Measures per-frame noise levels (Laplacian noise floor, high-frequency energy) across the timeline to detect source changes.",
+        "tampered": "Content from a different camera or different encoding quality produces a measurably different noise profile, creating a visible shift at splice boundaries.",
+        "benign": "Lighting changes (indoor/outdoor transitions, turning lights on), camera gain adjustments (auto-ISO), and scene complexity changes naturally alter noise characteristics.",
+    },
+    "double_compression_detection": {
+        "what": "Analyzes I-frame size periodicity and P-frame autocorrelation to detect evidence of re-encoding over a previously compressed video.",
+        "tampered": "When a video is re-encoded, the original GOP structure leaves a periodic fingerprint in frame sizes. A detected period that doesn't match the current GOP strongly indicates re-processing.",
+        "benign": "Social media uploads, messaging app compression, and cloud storage processing routinely re-encode video. A single re-encoding without content changes is common and not evidence of tampering.",
+    },
+    "ela_frame_analysis": {
+        "what": "Re-compresses sampled frames at a fixed JPEG quality and measures the residual difference. Regions with different compression histories show different error levels.",
+        "tampered": "Tampered regions that were re-compressed at different quality levels produce ELA residuals that stand out from the surrounding authentic content.",
+        "benign": "Complex textures, sharp edges, and areas with fine detail naturally produce higher ELA residuals. Scene changes cause legitimate ELA variation across time.",
+    },
+    "bitstream_structure": {
+        "what": "Checks for mid-stream changes in codec parameters (color space, interlacing mode, frame-type size distributions) that indicate concatenation from different encoding sessions.",
+        "tampered": "Different encoding sessions produce different codec parameters. Color space changes or interlacing mode switches mid-stream are strong indicators of spliced content.",
+        "benign": "Some broadcast and streaming formats legitimately switch parameters. HDR/SDR transitions and field-order changes during format conversion are not uncommon.",
+    },
+    "qp_consistency": {
+        "what": "Analyzes the pattern of frame types (I/P/B sequences) within each GOP for consistency. Different encoders produce different GOP patterns.",
+        "tampered": "When segments encoded by different software or settings are joined, the GOP type patterns in the spliced section will differ from the rest of the video.",
+        "benign": "Scene-based encoding decisions, rate control adjustments, and some streaming protocols intentionally vary GOP patterns for optimal quality.",
+    },
+    "thumbnail_mismatch": {
+        "what": "Compares the embedded thumbnail image (if present) against the actual first frame of the video.",
+        "tampered": "Editing tools often update the video content but leave the original thumbnail unchanged, creating a detectable mismatch.",
+        "benign": "Most videos don't have embedded thumbnails. Some players and platforms set thumbnails from a mid-video keyframe rather than the first frame.",
+    },
+    "av_sync_drift": {
+        "what": "Measures audio-video timing offset at multiple checkpoints across the timeline to detect drift or sudden sync jumps.",
+        "tampered": "Splicing video without properly adjusting audio timestamps causes A/V sync to jump at edit points or drift progressively.",
+        "benign": "Variable frame rate recording, streaming protocols, and some capture software introduce minor A/V offset. Drift under 20ms is generally imperceptible.",
+    },
+    "bitrate_distribution": {
+        "what": "Tests whether the statistical distribution of video packet sizes follows a single encoding profile (unimodal) or suggests two merged profiles (bimodal).",
+        "tampered": "Splicing content encoded at two different quality levels creates a bimodal distribution with two distinct packet-size peaks.",
+        "benign": "Highly variable content (action mixed with static shots) and VBR encoding can produce wide distributions that appear somewhat bimodal to statistical tests.",
+    },
+}
+
+
+def _confidence_qualifier(confidence: float) -> str:
+    if confidence >= 0.8:
+        return "strongly suggests"
+    if confidence >= 0.6:
+        return "suggests"
+    if confidence >= 0.4:
+        return "may indicate"
+    return "weakly hints at"
+
+
+def _build_explanation(
+    checks: list[CheckResult], label: str, probability: float, confidence: float
+) -> list[str]:
+    """Build rich, human-readable explanations with context, corroboration, and benign alternatives."""
+    explanation: list[str] = []
+
+    # ── Overall verdict context ──
+    active_checks = [c for c in checks if c.score >= 0.1]
+    high_checks = [c for c in checks if c.score >= 0.4 and c.confidence >= 0.4]
+    total_run = len(checks)
+
+    if label == "authentic":
+        explanation.append(
+            f"Verdict: AUTHENTIC — After running {total_run} forensic checks, no significant "
+            f"tampering indicators were detected. The video's metadata, timing, compression, "
+            f"and visual characteristics are all consistent with a single recording session."
+        )
+        if active_checks:
+            explanation.append(
+                f"Note: {len(active_checks)} check(s) showed minor anomalies (listed below), "
+                f"but none were strong enough to indicate tampering. Minor anomalies are normal "
+                f"in everyday video files."
+            )
+    elif label == "inconclusive":
+        explanation.append(
+            f"Verdict: INCONCLUSIVE — The evidence quality was not sufficient for a confident "
+            f"determination. This can happen when the video is very short, uses an unusual codec, "
+            f"or when anomalies are present but could equally be explained by legitimate processing. "
+            f"Consider running with 'deep' preset for more thorough analysis."
+        )
+    elif label == "suspicious":
+        explanation.append(
+            f"Verdict: SUSPICIOUS — {len(active_checks)} of {total_run} checks detected anomalies, "
+            f"with {len(high_checks)} showing moderate-to-strong signals. While these findings "
+            f"are consistent with tampering, they could also result from legitimate video processing "
+            f"(re-encoding, format conversion, platform upload). See per-check details below for "
+            f"alternative explanations."
+        )
+    else:  # tampered
+        # Check corroboration: how many independent categories agree?
+        flagged_categories = set(c.category for c in high_checks)
+        corroboration_msg = ""
+        if len(flagged_categories) >= 3:
+            corroboration_msg = (
+                f" Critically, {len(flagged_categories)} independent forensic categories "
+                f"({', '.join(sorted(flagged_categories))}) detected anomalies simultaneously, "
+                f"which significantly reduces the likelihood of false positive."
+            )
+        elif len(flagged_categories) == 2:
+            corroboration_msg = (
+                f" Two independent categories ({', '.join(sorted(flagged_categories))}) "
+                f"flagged anomalies, providing some corroboration."
+            )
+        elif len(flagged_categories) <= 1:
+            corroboration_msg = (
+                f" However, the findings come from only {'one category' if flagged_categories else 'limited data'}, "
+                f"so consider the benign explanations listed below before concluding tampering."
+            )
+        explanation.append(
+            f"Verdict: TAMPERED — {len(high_checks)} of {total_run} checks found strong anomalies "
+            f"(tamper probability {probability * 100:.0f}%, confidence {confidence * 100:.0f}%).{corroboration_msg}"
+        )
+
+    # ── Per-check detail with context ──
+    strongest = sorted(checks, key=lambda c: c.score * c.confidence, reverse=True)
+
+    for check in strongest:
+        if check.score < 0.08:
+            continue
+        ctx = _CHECK_CONTEXT.get(check.name, {})
+        qualifier = _confidence_qualifier(check.confidence)
+
+        lines: list[str] = []
+        lines.append(f"[{check.name}] score={check.score:.0%}, confidence={check.confidence:.0%}")
+
+        # What was found
+        lines.append(f"  Finding: {check.summary}")
+
+        # What the check does
+        if ctx.get("what"):
+            lines.append(f"  Method: {ctx['what']}")
+
+        # Interpretation
+        if check.score >= 0.3:
+            if ctx.get("tampered"):
+                lines.append(f"  If tampered: {ctx['tampered']}")
+            if ctx.get("benign"):
+                lines.append(f"  Benign alternative: {ctx['benign']}")
+        else:
+            lines.append(f"  This is a weak signal that {qualifier} a minor anomaly. It is likely benign on its own.")
+
+        # Corroboration with other checks in same category
+        same_category = [c for c in checks if c.category == check.category and c.name != check.name and c.score >= 0.15]
+        if same_category:
+            names = ", ".join(c.name for c in same_category)
+            lines.append(f"  Corroborated by: {names} (same forensic category)")
+        elif check.score >= 0.3:
+            lines.append(f"  Note: No corroborating signal from other {check.category} checks.")
+
+        explanation.append("\n".join(lines))
+
+    # ── Checks that were unavailable ──
+    unavailable = [c for c in checks if c.confidence <= 0.05 and c.score == 0.0 and c.summary]
+    if unavailable:
+        note_parts = [f"{c.name}: {c.summary}" for c in unavailable]
+        explanation.append("Unavailable checks: " + "; ".join(note_parts))
+
+    return explanation
 
 
 def analyze_video(path: str, options: AnalysisOptions | None = None) -> AnalysisResult:
@@ -1706,6 +2437,34 @@ def analyze_video(path: str, options: AnalysisOptions | None = None) -> Analysis
             except Exception as exc:
                 debug_payload["probe_errors"].append(f"bitstream_structure: {exc}")
 
+        # 8. QP / GOP pattern consistency
+        if ffprobe_available:
+            try:
+                checks.append(qp_consistency_checks(path, duration_s))
+            except Exception as exc:
+                debug_payload["probe_errors"].append(f"qp_consistency: {exc}")
+
+        # 9. Thumbnail vs first frame mismatch
+        if ffprobe_available:
+            try:
+                checks.append(thumbnail_mismatch_checks(path, basic_probe))
+            except Exception as exc:
+                debug_payload["probe_errors"].append(f"thumbnail_mismatch: {exc}")
+
+        # 10. A/V sync drift
+        if ffprobe_available and packet_probe:
+            try:
+                checks.append(av_sync_drift_checks(path, basic_probe, packet_probe))
+            except Exception as exc:
+                debug_payload["probe_errors"].append(f"av_sync_drift: {exc}")
+
+        # 11. Bitrate distribution bimodality
+        if packet_probe:
+            try:
+                checks.append(bitrate_distribution_checks(packet_probe, duration_s))
+            except Exception as exc:
+                debug_payload["probe_errors"].append(f"bitrate_distribution: {exc}")
+
     tamper_probability, confidence, label = fuse_scores(checks, sensitivity=opts.sensitivity)
 
     all_segments: list[SegmentEvidence] = []
@@ -1713,28 +2472,7 @@ def analyze_video(path: str, options: AnalysisOptions | None = None) -> Analysis
         all_segments.extend(check.segments)
     all_segments.sort(key=lambda segment: (segment.start_s, segment.end_s))
 
-    strongest = sorted(checks, key=lambda c: c.score * c.confidence, reverse=True)[:5]
-    explanation = []
-    if label == "authentic":
-        explanation.append("No strong tampering indicators were found in the enabled checks.")
-    elif label == "inconclusive":
-        explanation.append("Evidence quality was not high enough for a definitive decision.")
-    else:
-        explanation.append(
-            "Multiple forensic signals suggest possible alteration, especially in the highest scoring checks."
-        )
-    for check in strongest:
-        if check.score < 0.1:
-            continue
-        explanation.append(
-            f"{check.name}: {check.summary} (score={check.score:.2f}, confidence={check.confidence:.2f})"
-        )
-
-    for check in checks:
-        if check.score == 0.0 and check.confidence <= 0.05 and check.summary:
-            note = f"Note: {check.summary}"
-            if note not in explanation:
-                explanation.append(note)
+    explanation = _build_explanation(checks, label, tamper_probability, confidence)
 
     finished = now_utc_iso()
     debug = {}

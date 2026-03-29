@@ -30,10 +30,21 @@ const PHASE_LABELS = {
 };
 
 const CHECK_NAMES = {
-  metadata_codec_consistency: "Metadata consistency",
-  packet_timing_anomalies: "Packet timing",
-  frame_structure_anomalies: "Frame structure",
-  frame_quality_shift: "Visual quality shifts"
+  metadata_codec_consistency: "Metadata Consistency",
+  packet_timing_anomalies: "Packet Timing",
+  frame_structure_anomalies: "Frame Structure",
+  frame_quality_shift: "Visual Quality Shifts",
+  compression_consistency: "Compression Consistency",
+  scene_cut_forensics: "Scene Cut Forensics",
+  audio_spectral_continuity: "Audio Spectral Analysis",
+  temporal_noise_consistency: "Temporal Noise Analysis",
+  double_compression_detection: "Double Compression Detection",
+  ela_frame_analysis: "Error Level Analysis (ELA)",
+  bitstream_structure: "Bitstream Structure",
+  qp_consistency: "QP / GOP Consistency",
+  thumbnail_mismatch: "Thumbnail Mismatch",
+  av_sync_drift: "A/V Sync Drift",
+  bitrate_distribution: "Bitrate Distribution"
 };
 
 function humanizeCheckName(name) {

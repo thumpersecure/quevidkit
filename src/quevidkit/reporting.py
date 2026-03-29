@@ -18,27 +18,71 @@ def decision_color(label: str) -> str:
 def _check_long_explanation(check_name: str, summary: str) -> str:
     mapping = {
         "metadata_codec_consistency": (
-            "This check compares container and stream metadata for signs of suspicious edits, "
-            "such as mismatched durations, unusual bitrate declarations, and metadata rewriting."
+            "Compares container and stream metadata (durations, bitrates, format tags) for consistency. "
+            "Mismatches can indicate re-muxing or editing, but minor drift is common after legitimate re-encoding."
         ),
         "packet_timing_anomalies": (
-            "This check inspects packet timestamp continuity. Large timing discontinuities can indicate "
-            "splicing, frame removal, or timeline reconstruction."
+            "Inspects packet timestamp continuity for gaps or non-monotonic sequences. "
+            "Large discontinuities may indicate splicing, but VFR cameras and screen captures commonly produce irregular timing."
         ),
         "frame_structure_anomalies": (
-            "This check looks for structural codec changes across frames, including irregular GOP patterns, "
-            "resolution switches, or color profile changes that often appear after tampering."
+            "Analyzes GOP regularity, resolution consistency, and color profile stability. "
+            "Irregular patterns may indicate concatenation from different sources, but adaptive encoding intentionally varies GOP structure."
         ),
         "frame_quality_shift": (
-            "This check measures abrupt visual quality changes across time, including blur shifts, blockiness "
-            "changes, and repeated/omitted frame behavior."
+            "Measures abrupt visual quality changes (blur, blockiness, duplicate frames). "
+            "Discontinuities may indicate inserted content, but scene changes and focus shifts cause legitimate quality variation."
+        ),
+        "compression_consistency": (
+            "Compares packet-size distributions across timeline segments per frame type. "
+            "Shifts may indicate re-encoding of a portion, but VBR encoding and scene complexity naturally cause variation."
+        ),
+        "scene_cut_forensics": (
+            "Correlates scene transitions with GOP/keyframe structure. "
+            "Misaligned cuts may indicate splicing, but scene-based encoding and variable GOP modes produce legitimate misalignment."
+        ),
+        "audio_spectral_continuity": (
+            "Detects abrupt spectral discontinuities in audio (energy, frequency content). "
+            "Sharp breaks may indicate audio splicing, but sudden sounds and environment changes are legitimate causes."
+        ),
+        "temporal_noise_consistency": (
+            "Measures per-frame noise levels to detect source changes. "
+            "Noise floor shifts may indicate different cameras/encoders, but lighting changes and auto-ISO naturally alter noise."
+        ),
+        "double_compression_detection": (
+            "Detects periodic fingerprints from prior encoding in frame-size autocorrelation. "
+            "Strong evidence of re-encoding, but social media upload and messaging compression routinely re-encode without tampering."
+        ),
+        "ela_frame_analysis": (
+            "Error Level Analysis: re-compresses frames and measures residuals. "
+            "Different residual levels may indicate mixed compression, but complex textures naturally produce higher ELA variation."
+        ),
+        "bitstream_structure": (
+            "Checks for mid-stream codec parameter changes (color space, interlacing, frame-type distributions). "
+            "Parameter switches strongly indicate concatenation, but some broadcast formats legitimately change parameters."
+        ),
+        "qp_consistency": (
+            "Analyzes GOP frame-type patterns for consistency across the timeline. "
+            "Pattern changes indicate different encoding sessions, but scene-based encoding intentionally varies patterns."
+        ),
+        "thumbnail_mismatch": (
+            "Compares the embedded thumbnail image against the actual first frame. "
+            "A mismatch suggests post-recording editing, but some platforms set thumbnails from mid-video keyframes."
+        ),
+        "av_sync_drift": (
+            "Measures audio-video timing offset at checkpoints across the timeline. "
+            "Jumps or progressive drift may indicate splicing, but VFR recording and streaming protocols introduce minor offsets."
+        ),
+        "bitrate_distribution": (
+            "Tests whether packet-size distribution is unimodal (single source) or bimodal (mixed sources). "
+            "Bimodality suggests spliced content, but highly variable content and VBR encoding can appear somewhat bimodal."
         ),
     }
     prefix = mapping.get(
         check_name,
         "This forensic check contributes to the final decision by measuring anomaly strength and reliability.",
     )
-    return f"{prefix} Detector summary: {summary}"
+    return f"{prefix} Result: {summary}"
 
 
 def _score_band(score: float) -> str:
