@@ -321,3 +321,139 @@ ffprobe -version
 ```bash
 python -m pytest
 ```
+
+---
+
+## 🔬 The Science Behind Video Forensics
+
+> 📄 **[Download the full reference (PDF)](quesciences.pdf)**
+
+A plain-language guide to how digital video tampering detection works, why each forensic technique matters, and what quevidkit does under the hood.
+
+---
+
+### 🎬 How Digital Video Works
+
+Every video file has two layers: the **container** (`.mp4`, `.mkv`, `.mov` — the packaging) and the **codec** (`H.264`, `H.265`, `AV1` — the compression algorithm). Without compression, one minute of 1080p at 30fps would be ~10 GB.
+
+Codecs use three frame types to achieve compression:
+
+| Frame | Name | What It Stores |
+|:---:|---|---|
+| **I** | Intra | 🖼️ Complete standalone image — the largest, serves as an anchor point |
+| **P** | Predicted | ➡️ Only what changed since the previous frame |
+| **B** | Bi-directional | ↔️ Differences from both past and future frames — smallest |
+
+Frames are organized into **GOPs** (Groups of Pictures):
+
+```
+I  B  B  P  B  B  P  B  B  P  B  B  I  ...
+│←————————— one GOP ——————————————→│
+```
+
+> 🔑 **Key forensic insight:** A legitimate recording has a **consistent, regular GOP pattern**. Editing almost always disrupts it.
+
+---
+
+### 🕵️ Types of Video Tampering
+
+| Type | What It Is | What It Disrupts |
+|---|---|---|
+| ✂️ **Splicing** | Combining footage from different sources | Metadata, compression, noise, GOP structure |
+| 🗑️ **Frame Deletion** | Removing frames to erase moments | Timestamps jump, motion speeds up |
+| ➕ **Frame Insertion** | Adding/duplicating frames | Zero-difference sequences, noise mismatches |
+| 🔄 **Re-encoding** | Decoding and re-encoding to hide edits | Double compression artifacts, metadata changes |
+| 🤖 **Deepfakes** | AI-generated face swaps or synthetic video | Blinking, lighting, texture, frequency artifacts |
+| 🔊 **Audio Replacement** | Swapping the audio track | Lip sync, spectral breaks, background noise shift |
+| ⏩ **Speed Manipulation** | Altering playback speed | Motion vectors, audio pitch, timestamp irregularities |
+
+---
+
+### 🔍 The 11 quevidkit Forensic Checks
+
+#### Standard Checks (all presets)
+
+| # | Check | What It Catches |
+|:---:|---|---|
+| 1 | 📋 **Metadata & Codec Consistency** | Duration mismatches, bitrate discrepancies, editing software markers |
+| 2 | ⏱️ **Packet Timing Anomalies** | Non-monotonic timestamps, frame gaps, timing spikes |
+| 3 | 🧱 **Frame Structure Anomalies** | Irregular GOP intervals, resolution switches, color profile changes |
+| 4 | 🎞️ **Frame Quality Shift** | Duplicate frames, blur/blockiness shifts, missing frame gaps |
+
+#### Advanced Checks (deep preset — `enable_advanced_forensics=True`)
+
+| # | Check | What It Catches |
+|:---:|---|---|
+| 5 | 📊 **Compression Consistency** | Re-encoded segments via packet-size distribution shifts across temporal windows |
+| 6 | 🎬 **Scene Cut Forensics** | Splice points where scene cuts don't align with GOP/keyframe boundaries |
+| 7 | 🔉 **Audio Spectral Continuity** | Audio splices via energy, spectral centroid, and ZCR discontinuities |
+| 8 | 📡 **Temporal Noise Consistency** | Source material changes via noise floor shifts (Laplacian + Sobel) |
+| 9 | 🔁 **Double Compression Detection** | Re-encoding fingerprints via P-frame autocorrelation periodicity |
+| 10 | 🔬 **Error Level Analysis (ELA)** | Mixed compression via JPEG re-compression residual shifts |
+| 11 | 🧬 **Bitstream Structure** | Mid-stream parameter changes, interlace switches, B-frame mismatches |
+
+---
+
+### 🧮 How Scores Become Verdicts
+
+```
+11 checks  →  Confidence-weighted mean  →  Logistic function  →  Label
+                                              ↓
+                              probability = 1 / (1 + e^(-logit))
+                              logit = bias + (score × 5.2) + (gate × 0.4)
+                              bias  = -2.6 + (sensitivity × 1.6)
+```
+
+| Condition | Verdict |
+|---|---|
+| Quality gate < 0.3 or confidence < 0.35 | 🔘 **Inconclusive** |
+| Probability ≥ 0.6 | 🔴 **Tampered** |
+| Probability ≥ 0.35 | 🟡 **Suspicious** |
+| Otherwise | 🟢 **Authentic** |
+
+> 💡 Each check is **independent** — spanning metadata, timing, codec, visual quality, audio, and noise domains. Multiple weak signals pointing the same direction compound into strong evidence.
+
+---
+
+### ⚠️ Common False Positive Sources
+
+| Source | Why It Triggers Checks |
+|---|---|
+| 🔄 Transcoding | Re-encoding changes metadata + creates double compression artifacts |
+| 📱 Social media upload | Platforms re-encode with their own settings — indistinguishable from tampering |
+| 🖥️ Screen recording | Creates an entirely new recording with different everything |
+| 📹 Multi-camera editing | Different cameras = different noise/color profiles at each cut |
+| 📼 CCTV concatenation | Junction points create genuine timestamp resets |
+
+> ⚖️ **"Suspicious" means the video has characteristics inconsistent with a single unmodified recording. It does NOT mean it was maliciously tampered with.** Expert interpretation is always required.
+
+---
+
+### 🔗 Chain of Custody
+
+| Step | Purpose |
+|---|---|
+| 📥 **Acquisition** | Document how, when, and by whom the video was obtained |
+| 🔐 **SHA-256 Hash** | Mathematical fingerprint proving the file hasn't changed (quevidkit computes this automatically) |
+| 🗄️ **Secure Storage** | Write-protected, access-controlled, with logging |
+| 📝 **Analysis Docs** | Every tool, action, and result documented (quevidkit generates JSON + HTML reports) |
+| 🤝 **Transfer Docs** | Every handoff logged |
+
+> 📌 *"If you did not write it down, it did not happen."* — The guiding principle of digital forensics.
+
+---
+
+### 📚 Further Reading
+
+**Academic:**
+- *An Overview of Video Tampering Detection Techniques* — IEEE, 2023
+- *Deepfake Media Forensics: Status and Future Challenges* — PMC, 2025
+- *Double Compression Detection for H.264 with Adaptive GOP* — Springer, 2019
+- *SWGDE Best Practices for Digital Forensic Video Analysis* — SWGDE.org
+
+**Accessible:**
+- *How to Check Video Integrity by Detecting Double Encoding* — Forensic Focus
+- *Error Level Analysis Tutorial* — FotoForensics.com
+- *How to Make Digital Evidence Admissible in Court* — TrueScreen, 2026
+
+> 🔬 No automated tool can provide legal certainty. quevidkit produces **evidence-backed probability with explanation**, not proof.
