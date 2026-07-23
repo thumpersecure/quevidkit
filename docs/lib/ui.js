@@ -71,9 +71,60 @@ export function hideProgress() {
 
 // ── Error ────────────────────────────────────────────────────────────────────
 
+// ── Debug log ────────────────────────────────────────────────────────────────
+let _logCount = 0;
+function _ts() {
+  const d = new Date();
+  return d.toTimeString().slice(0, 8) + '.' + String(d.getMilliseconds()).padStart(3, '0');
+}
+/** Append a line to the on-page debug log. level: info|ok|warn|err */
+export function qvkLog(msg, level = 'info') {
+  const box = $('debug-log');
+  if (box) {
+    const cls = level === 'err' ? 'lg-err' : level === 'ok' ? 'lg-ok' : level === 'warn' ? 'lg-warn' : '';
+    const line = document.createElement('div');
+    const t = document.createElement('span');
+    t.className = 'lg-t';
+    t.textContent = _ts() + '  ';
+    const m = document.createElement('span');
+    if (cls) m.className = cls;
+    m.textContent = String(msg);
+    line.appendChild(t); line.appendChild(m);
+    box.appendChild(line);
+    box.scrollTop = box.scrollHeight;
+    _logCount++;
+    const c = $('debug-count'); if (c) c.textContent = String(_logCount);
+    if (level === 'err') {
+      const panel = $('debug-panel');
+      const auto = $('debug-autoopen');
+      if (panel && auto && auto.checked) panel.open = true;
+    }
+  }
+  const fn = level === 'err' ? 'error' : level === 'warn' ? 'warn' : 'log';
+  try { console[fn]('[qvk]', msg); } catch (_) {}
+}
+
+export function initDebugPanel() {
+  const clear = $('debug-clear');
+  if (clear) clear.addEventListener('click', () => {
+    const box = $('debug-log'); if (box) box.textContent = '';
+    _logCount = 0; const c = $('debug-count'); if (c) c.textContent = '0';
+  });
+  const copy = $('debug-copy');
+  if (copy) copy.addEventListener('click', async () => {
+    const box = $('debug-log'); if (!box) return;
+    try { await navigator.clipboard.writeText(box.innerText); copy.textContent = 'Copied'; setTimeout(() => copy.textContent = 'Copy', 1200); }
+    catch (_) { copy.textContent = 'Copy failed'; }
+  });
+  // capture uncaught errors so nothing is lost
+  window.addEventListener('error', e => qvkLog('window error: ' + (e.message || e), 'err'));
+  window.addEventListener('unhandledrejection', e => qvkLog('unhandled rejection: ' + ((e.reason && e.reason.message) || e.reason), 'err'));
+}
+
 export function showError(msg) {
   dom.errorBox.textContent = msg;
   dom.errorBox.classList.remove('hidden');
+  qvkLog('ERROR shown to user: ' + msg, 'err');
 }
 
 export function hideError() {

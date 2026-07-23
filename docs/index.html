@@ -76,7 +76,7 @@
           <div class="adv-body">
             <label class="field">
               <span>Server URL</span>
-              <input id="server-url" type="url" placeholder="http://127.0.0.1:8000">
+              <input id="server-url" type="url" placeholder="https://api.quevidkit.pro" value="https://api.quevidkit.pro">
               <small class="muted">Address of a running quevidkit server. Only needed for Server or Hybrid modes.</small>
             </label>
             <div class="inline-row">
@@ -212,6 +212,16 @@
         </a>
       </div>
     </footer>
+
+    <details id="debug-panel" class="debug-panel">
+      <summary>Debug log <span id="debug-count" class="debug-count">0</span></summary>
+      <div class="debug-toolbar">
+        <button type="button" id="debug-copy" class="debug-btn">Copy</button>
+        <button type="button" id="debug-clear" class="debug-btn">Clear</button>
+        <label class="debug-auto"><input type="checkbox" id="debug-autoopen"> auto-open on error</label>
+      </div>
+      <pre id="debug-log" class="debug-log"></pre>
+    </details>
   </main>
 
   <script type="module" src="./app.js"></script>
