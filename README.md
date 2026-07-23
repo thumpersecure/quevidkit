@@ -2,7 +2,7 @@
 
 https://thumpersecure.github.io/quevidkit/
 
-# quevidkit v.03
+# quevidkit v3.31
 
 quevidkit is a forensic video tampering analysis toolkit with:
 
