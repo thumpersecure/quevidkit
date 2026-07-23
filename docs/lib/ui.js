@@ -7,6 +7,15 @@
 
 import { humanizeCheckName, humanizeCategory, verdictColor } from './scoring.js';
 
+// Escape any string before it goes into innerHTML. Result fields (check names,
+// summaries, segment categories) can come from a remote backend in remote/hybrid
+// mode, so they must never be trusted as HTML.
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s == null ? '' : String(s);
+  return d.innerHTML;
+}
+
 // ── DOM references ───────────────────────────────────────────────────────────
 
 const $ = id => document.getElementById(id);
@@ -169,8 +178,8 @@ function renderCheckBars(checks) {
     const card = document.createElement('div');
     card.className = 'check-item';
     card.innerHTML = `
-      <h4>${humanizeCheckName(c.name)}</h4>
-      <p class="muted">${checkDescription(c.name)}</p>
+      <h4>${esc(humanizeCheckName(c.name))}</h4>
+      <p class="muted">${esc(checkDescription(c.name))}</p>
       <div class="bar-row">
         <span>Anomaly</span>
         <div class="bar-track"><div class="bar-fill-score" style="width:${s.toFixed(1)}%"></div></div>
@@ -181,7 +190,7 @@ function renderCheckBars(checks) {
         <div class="bar-track"><div class="bar-fill-confidence" style="width:${cn.toFixed(1)}%"></div></div>
         <strong>${cn.toFixed(1)}%</strong>
       </div>
-      <p class="check-summary">${c.summary || ''}</p>
+      <p class="check-summary">${esc(c.summary || '')}</p>
     `;
     dom.resultChecks.appendChild(card);
   }
@@ -208,7 +217,7 @@ function renderTimeline(report) {
     const width = Math.max(0.4, end - start);
     const cat = humanizeCategory(seg.category);
     const title = `[${cat}] ${seg.start_s.toFixed(2)}s–${seg.end_s.toFixed(2)}s (conf ${seg.confidence.toFixed(2)})`;
-    return `<div class="timeline-block" style="left:${start.toFixed(2)}%;width:${width.toFixed(2)}%" title="${title}"></div>`;
+    return `<div class="timeline-block" style="left:${start.toFixed(2)}%;width:${width.toFixed(2)}%" title="${esc(title)}"></div>`;
   }).join('');
   dom.resultTimeline.innerHTML = blocks;
 
