@@ -680,3 +680,67 @@ details[open] > summary::after { transform: rotate(-180deg); }
     padding-right: max(12px, env(safe-area-inset-right));
   }
 }
+
+/* ── Debug log panel ─────────────────────────────────────────────────────── */
+.debug-panel {
+  margin: 24px auto 40px;
+  max-width: 860px;
+  background: var(--panel-soft);
+  border: 1px solid var(--line, rgba(255,255,255,.12));
+  border-radius: 10px;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 12px;
+}
+.debug-panel > summary {
+  cursor: pointer;
+  padding: 10px 14px;
+  color: var(--muted);
+  user-select: none;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.debug-panel > summary::-webkit-details-marker { display: none; }
+.debug-panel > summary::before { content: "▸"; color: var(--muted); }
+.debug-panel[open] > summary::before { content: "▾"; }
+.debug-count {
+  background: rgba(255,255,255,.08);
+  border-radius: 10px;
+  padding: 0 8px;
+  font-size: 11px;
+  color: var(--ink, #dbe6f5);
+}
+.debug-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px 8px;
+}
+.debug-btn {
+  background: rgba(255,255,255,.06);
+  border: 1px solid var(--line, rgba(255,255,255,.12));
+  color: var(--ink, #dbe6f5);
+  border-radius: 6px;
+  padding: 4px 12px;
+  font-size: 11px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.debug-btn:hover { background: rgba(255,255,255,.12); }
+.debug-auto { color: var(--muted); font-size: 11px; display: flex; align-items: center; gap: 5px; }
+.debug-log {
+  margin: 0;
+  padding: 10px 14px;
+  max-height: 260px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--ink, #dbe6f5);
+  border-top: 1px solid var(--line, rgba(255,255,255,.10));
+  line-height: 1.5;
+}
+.debug-log .lg-err { color: var(--danger, #ff5a6b); }
+.debug-log .lg-ok { color: #4ad07f; }
+.debug-log .lg-warn { color: var(--amber, #ffb454); }
+.debug-log .lg-t { color: var(--muted); }

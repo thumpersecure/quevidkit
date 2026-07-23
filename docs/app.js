@@ -20,6 +20,7 @@ import { downloadReport } from './lib/report.js';
 import {
   dom, showProgress, hideProgress, showError, hideError,
   renderResult, setCheckStatus, getOptions, applyPreset, PRESETS,
+  qvkLog, initDebugPanel,
 } from './lib/ui.js';
 
 // ── State ────────────────────────────────────────────────────────────────────
@@ -60,7 +61,15 @@ function isExpired(s) { return !s?.expiresAtMs || Date.now() >= s.expiresAtMs; }
 async function ensureSession(baseUrl) {
   const s = loadSession(baseUrl);
   if (s && !isExpired(s)) return s;
-  const resp = await fetch(`${baseUrl}/api/v1/session-key`, { method: 'POST' });
+  qvkLog(`POST ${baseUrl}/api/v1/session-key`);
+  let resp;
+  try {
+    resp = await fetch(`${baseUrl}/api/v1/session-key`, { method: 'POST' });
+  } catch (e) {
+    qvkLog(`session-key fetch FAILED (network/CORS/mixed-content): ${e.message}`, 'err');
+    throw new Error(`Cannot reach ${baseUrl} — ${e.message}. Check the URL is https and reachable.`);
+  }
+  qvkLog(`session-key -> ${resp.status}`, resp.ok ? 'ok' : 'err');
   if (!resp.ok) throw new Error(`Server error ${resp.status}`);
   const data = await resp.json();
   const record = {
@@ -76,14 +85,29 @@ async function remoteFetch(baseUrl, path, init = {}) {
   const session = await ensureSession(baseUrl);
   const headers = new Headers(init.headers || {});
   headers.set('X-Session-Key', session.key);
-  let resp = await fetch(`${baseUrl}${path}`, { ...init, headers });
+  const method = (init.method || 'GET').toUpperCase();
+  qvkLog(`${method} ${path}`);
+  let resp;
+  try {
+    resp = await fetch(`${baseUrl}${path}`, { ...init, headers });
+  } catch (e) {
+    qvkLog(`${method} ${path} FAILED (network/CORS): ${e.message}`, 'err');
+    throw new Error(`Request to ${path} failed — ${e.message}`);
+  }
   if (resp.status === 401) {
+    qvkLog(`${method} ${path} -> 401, refreshing session`, 'warn');
     clearSession(baseUrl);
     const refreshed = await ensureSession(baseUrl);
     const h2 = new Headers(init.headers || {});
     h2.set('X-Session-Key', refreshed.key);
-    resp = await fetch(`${baseUrl}${path}`, { ...init, headers: h2 });
+    try {
+      resp = await fetch(`${baseUrl}${path}`, { ...init, headers: h2 });
+    } catch (e) {
+      qvkLog(`${method} ${path} retry FAILED: ${e.message}`, 'err');
+      throw new Error(`Request to ${path} failed — ${e.message}`);
+    }
   }
+  qvkLog(`${method} ${path} -> ${resp.status}`, resp.ok ? 'ok' : 'err');
   return resp;
 }
 
@@ -408,6 +432,9 @@ function init() {
   if (params.get('mode') && dom.modeSelect) {
     dom.modeSelect.value = params.get('mode');
   }
+
+  initDebugPanel();
+  qvkLog(`quevidkit UI ready. page=${location.protocol}//${location.host} · server=${dom.serverUrl?.value || '(none)'} · mode=${dom.modeSelect?.value || 'client'}`, 'ok');
 }
 
 function resetCheckStatuses() {
