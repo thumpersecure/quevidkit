@@ -1,6 +1,24 @@
-# link to web app
+<div align="center">
 
-https://thumpersecure.github.io/quevidkit/
+<img src="docs/assets/social-preview.gif" alt="quevidkit — forensic video analysis" width="720">
+
+# 📽️ quevidkit
+
+**Forensic video tampering analysis — 19 checks, evidence-backed probability, not legal certainty.**
+
+[![Version](https://img.shields.io/badge/version-1.0.0-2bc4d8?style=flat-square)](CHANGELOG.md)
+[![License: MIT](https://img.shields.io/badge/license-MIT-34d69a?style=flat-square)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue?style=flat-square)](pyproject.toml)
+[![Runs in your browser](https://img.shields.io/badge/client--side-no%20upload%20required-f5b445?style=flat-square)](https://thumpersecure.github.io/quevidkit/)
+[![Docker](https://img.shields.io/badge/docker-ready-2496ed?style=flat-square)](Dockerfile)
+
+### ▶️ [**Open the free web app**](https://thumpersecure.github.io/quevidkit/) — no install, no account, your video never leaves your device
+
+[Web App](https://thumpersecure.github.io/quevidkit/) · [The 19 Checks](#the-19-quevidkit-forensic-checks) · [Quick Start](#quick-start) · [API](#curl-example) · [The Science](que-science.md) · [Changelog](CHANGELOG.md)
+
+</div>
+
+---
 
 # quevidkit v1.0.0
 
@@ -33,8 +51,9 @@ quevidkit is a forensic video tampering analysis toolkit with:
 
 ## Important forensic note
 
-No automated detector can be perfectly comprehensive for every codec, platform, and editing workflow.
-quevidkit produces **evidence-backed probability + explanation**, not legal certainty.
+> [!IMPORTANT]
+> No automated detector can be perfectly comprehensive for every codec, platform, and editing workflow.
+> quevidkit produces **evidence-backed probability + explanation**, not legal certainty.
 
 ---
 
