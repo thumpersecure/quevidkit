@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import hashlib
 import hmac
 import json
+import multiprocessing
 import os
 from pathlib import Path
 import secrets
@@ -38,6 +39,18 @@ SESSION_KEY_TTL_SECONDS = int(os.environ.get("QVK_SESSION_KEY_TTL_SECONDS", "360
 SESSION_KEY_GEN_LIMIT = int(os.environ.get("QVK_SESSION_KEY_GEN_LIMIT", "10"))
 SESSION_KEY_GEN_WINDOW_SECONDS = int(os.environ.get("QVK_SESSION_KEY_GEN_WINDOW_SECONDS", "3600"))
 SESSION_KEY_JOB_LIMIT = int(os.environ.get("QVK_SESSION_KEY_JOB_LIMIT", "10"))
+
+# Hard wall-clock cap on a single analysis job, regardless of preset/options.
+# Enforced by running the analysis in a child process that gets terminated if
+# it runs past this deadline — a thread-based timeout can't actually kill
+# stuck OpenCV/ffmpeg work, only abandon it, so this must be a real process.
+ANALYSIS_JOB_TIMEOUT_SECONDS = int(os.environ.get("QVK_ANALYSIS_JOB_TIMEOUT_SECONDS", "600"))
+
+# Hard cap on how many job records the in-memory JobStore will hold at once.
+# Jobs are normally cleaned up by DELETE or upload retention, but nothing
+# forces a client to ever call DELETE, so without a cap the store (and the
+# full analysis result dict each entry holds) grows without bound.
+MAX_STORED_JOBS = int(os.environ.get("QVK_MAX_STORED_JOBS", "500"))
 _session_secret = os.environ.get("QVK_SESSION_KEY_SECRET")
 if not _session_secret:
     # Ephemeral fallback keeps secrets out of repo and rotates on each server restart.
@@ -232,13 +245,27 @@ class JobRecord:
 
 
 class JobStore:
-    def __init__(self) -> None:
+    def __init__(self, max_jobs: int = MAX_STORED_JOBS) -> None:
         self._jobs: dict[str, JobRecord] = {}
         self._lock = threading.Lock()
+        self._max_jobs = max_jobs
 
     def put(self, job: JobRecord) -> None:
         with self._lock:
             self._jobs[job.job_id] = job
+            if len(self._jobs) > self._max_jobs:
+                # Evict oldest-created jobs first. This is a bounded, best-effort
+                # cap on worst-case memory use, not a retention policy — normal
+                # cleanup still happens via DELETE and upload-retention cleanup.
+                overflow = len(self._jobs) - self._max_jobs
+                oldest_ids = sorted(self._jobs, key=lambda jid: self._jobs[jid].created_at)[:overflow]
+                for jid in oldest_ids:
+                    evicted = self._jobs.pop(jid, None)
+                    if evicted and not KEEP_UPLOADS:
+                        try:
+                            os.remove(evicted.file_path)
+                        except OSError:
+                            pass
 
     def get(self, job_id: str) -> JobRecord | None:
         with self._lock:
@@ -293,6 +320,32 @@ def _allowed_filename(name: str) -> bool:
     return lowered.endswith((".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v", ".ts", ".3gp"))
 
 
+# Magic-byte signatures for the containers _allowed_filename() permits. This
+# is a defense-in-depth check on top of the extension check above: the
+# extension alone is trivially spoofable (rename anything.exe to anything.mp4)
+# and would otherwise reach ffprobe/OpenCV unchecked. Signatures are checked
+# against the first 64 bytes actually written to disk.
+def _looks_like_supported_video(head: bytes) -> bool:
+    if len(head) < 12:
+        return False
+    # ISO-BMFF (mp4/mov/m4v/3gp): 4-byte size + b"ftyp" at offset 4, or a
+    # top-level box type at offset 4 (styp/free/wide/moov/mdat/skip).
+    if head[4:8] in (b"ftyp", b"styp", b"free", b"wide", b"moov", b"mdat", b"skip"):
+        return True
+    # Matroska/WebM: EBML header.
+    if head[:4] == b"\x1a\x45\xdf\xa3":
+        return True
+    # AVI: RIFF....AVI
+    if head[:4] == b"RIFF" and head[8:12] == b"AVI ":
+        return True
+    # MPEG-TS: sync byte 0x47 repeating every 188 bytes is the real signature,
+    # but a cheap first-byte check is enough to reject obviously-wrong files
+    # without a second read here (ffprobe still validates the rest).
+    if head[0:1] == b"\x47":
+        return True
+    return False
+
+
 def _parse_options(raw_options: str | None) -> AnalysisOptions:
     if not raw_options:
         return AnalysisOptions()
@@ -323,11 +376,14 @@ def _cleanup_old_uploads() -> None:
 
 async def _save_upload_stream(file: UploadFile, destination: Path) -> int:
     total_bytes = 0
+    head = b""
     with destination.open("wb") as handle:
         while True:
             chunk = await file.read(1024 * 1024)
             if not chunk:
                 break
+            if total_bytes == 0:
+                head = chunk[:64]
             total_bytes += len(chunk)
             if total_bytes > MAX_UPLOAD_BYTES:
                 handle.close()
@@ -338,6 +394,12 @@ async def _save_upload_stream(file: UploadFile, destination: Path) -> int:
     if total_bytes < 16:
         destination.unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail="File appears to be empty or invalid.")
+    if not _looks_like_supported_video(head):
+        destination.unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=415,
+            detail="File content does not match a supported video container format.",
+        )
     return total_bytes
 
 
@@ -378,6 +440,22 @@ def _get_owned_job_or_404(job_id: str, principal: SessionPrincipal) -> JobRecord
     return job
 
 
+def _analyze_video_subprocess_target(file_path: str, options_dict: dict[str, Any], result_queue: "multiprocessing.Queue") -> None:
+    """Runs in a child process. Never called directly — see _run_analysis_job.
+
+    Isolating the actual analysis in its own process (rather than just a
+    thread) is what makes ANALYSIS_JOB_TIMEOUT_SECONDS enforceable: a stuck
+    ffmpeg/OpenCV call inside a thread can only be abandoned, not killed, but
+    a child process can be terminated outright when it overruns its budget.
+    """
+    try:
+        options = AnalysisOptions.from_dict(options_dict)
+        result = analyze_video(file_path, options=options)
+        result_queue.put(("ok", result.to_dict()))
+    except Exception as exc:  # pragma: no cover - broad for subprocess resilience
+        result_queue.put(("error", str(exc)))
+
+
 def _run_analysis_job(job_id: str) -> None:
     job = store.get(job_id)
     if not job:
@@ -398,9 +476,39 @@ def _run_analysis_job(job_id: str) -> None:
                 progress=45,
                 message="Running advanced forensic checks (compression, ELA, noise, audio spectral, scene analysis)",
             )
-        result = analyze_video(job.file_path, options=options)
-        job.result = result.to_dict()
-        job.touch(status="completed", phase="done", progress=100, message="Analysis complete")
+
+        ctx = multiprocessing.get_context("spawn")
+        result_queue: multiprocessing.Queue = ctx.Queue(maxsize=1)
+        proc = ctx.Process(
+            target=_analyze_video_subprocess_target,
+            args=(job.file_path, job.options, result_queue),
+            daemon=True,
+        )
+        proc.start()
+        proc.join(timeout=ANALYSIS_JOB_TIMEOUT_SECONDS)
+
+        if proc.is_alive():
+            proc.terminate()
+            proc.join(timeout=5)
+            if proc.is_alive():  # pragma: no cover - defensive, terminate() is normally enough
+                proc.kill()
+                proc.join(timeout=5)
+            job.error = f"Analysis exceeded the {ANALYSIS_JOB_TIMEOUT_SECONDS}s time limit and was stopped."
+            job.touch(status="failed", phase="failed", progress=100, message="Analysis timed out")
+            return
+
+        if result_queue.empty():
+            job.error = f"Analysis process exited unexpectedly (exit code {proc.exitcode})."
+            job.touch(status="failed", phase="failed", progress=100, message="Analysis failed")
+            return
+
+        outcome, payload = result_queue.get()
+        if outcome == "ok":
+            job.result = payload
+            job.touch(status="completed", phase="done", progress=100, message="Analysis complete")
+        else:
+            job.error = payload
+            job.touch(status="failed", phase="failed", progress=100, message="Analysis failed")
     except Exception as exc:  # pragma: no cover - broad for API resilience
         job.error = str(exc)
         job.touch(status="failed", phase="failed", progress=100, message="Analysis failed")
@@ -419,7 +527,7 @@ async def index(request: Request) -> HTMLResponse:
 
 @app.get("/api/health")
 async def health() -> dict[str, str]:
-    return {"status": "ok", "version": "1.0.0", "service": "quevidkit"}
+    return {"status": "ok", "version": "1.0.1", "service": "quevidkit"}
 
 
 @app.post("/api/v1/session-key")

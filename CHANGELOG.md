@@ -3,6 +3,12 @@
 All notable changes to this project are documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.0.1]
+
+- Fix: analysis jobs now run with a hard wall-clock timeout (`QVK_ANALYSIS_JOB_TIMEOUT_SECONDS`, default 600s), enforced by running each job in its own process so a stuck/adversarial upload can be terminated instead of hanging a worker indefinitely
+- Fix: the in-memory job store now caps how many jobs it retains (`QVK_MAX_STORED_JOBS`, default 500), evicting the oldest jobs and their upload files instead of growing without bound
+- Fix: uploads are now checked against real container magic bytes, not just filename extension, before being accepted or handed to the analysis pipeline
+
 ## [1.0.0]
 
 - Add 4 new forensic checks (16-19): sensor noise correlation, AI/deepfake frequency-artifact heuristic, C2PA/provenance manifest detection, container edit-trace deep scan
