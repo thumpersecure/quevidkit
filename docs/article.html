@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>I Built a Free Video Forensics Lab That Runs Entirely in Your Browser</title>
+  <meta name="description" content="19 forensic checks for detecting video tampering — no upload, no account, no server. Just open a tab.">
+  <meta name="author" content="thumpersecure">
+  <meta property="og:title" content="I Built a Free Video Forensics Lab That Runs Entirely in Your Browser">
+  <meta property="og:description" content="19 forensic checks for detecting video tampering — no upload, no account, no server.">
+  <meta property="og:image" content="https://thumpersecure.github.io/quevidkit/assets/social-preview.gif">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://thumpersecure.github.io/quevidkit/article.html">
+  <style>
+    body { max-width: 680px; margin: 0 auto; padding: 24px 16px 64px; font-family: Georgia, 'Times New Roman', serif; font-size: 19px; line-height: 1.65; color: #1a1a1a; background: #ffffff; }
+    h1 { font-family: system-ui, -apple-system, sans-serif; font-size: 2.1em; line-height: 1.15; margin: 0.6em 0 0.3em; }
+    h2 { font-family: system-ui, -apple-system, sans-serif; font-size: 1.4em; line-height: 1.25; margin: 1.6em 0 0.4em; }
+    h3 { font-family: system-ui, -apple-system, sans-serif; font-size: 1.15em; margin: 1.4em 0 0.3em; }
+    img { max-width: 100%; height: auto; border-radius: 8px; }
+    a { color: #0c7c8c; }
+    blockquote { margin: 1.2em 0; padding-left: 1em; border-left: 3px solid #ccc; color: #444; font-style: italic; }
+    hr { border: none; border-top: 1px solid #ddd; margin: 2.2em auto; width: 40%; }
+    ul, ol { padding-left: 1.4em; }
+    li { margin: 0.35em 0; }
+    em.subtitle { display: block; font-size: 1.15em; color: #555; margin-bottom: 1.2em; }
+  </style>
+</head>
+<body>
+<article>
+
+<h1>I Built a Free Video Forensics Lab That Runs Entirely in Your Browser</h1>
+<em class="subtitle">19 forensic checks for detecting video tampering — no upload, no account, no server. Just open a tab.</em>
+
+<p><img src="https://thumpersecure.github.io/quevidkit/assets/social-preview.gif" alt="quevidkit — forensic video analysis"></p>
+
+<p>We live in the first era of human history where seeing is no longer believing.</p>
+
+<p>A video lands in your feed, your inbox, or your group chat. It looks real. It sounds real. But was it cut? Re-encoded? Spliced together from two different sources? Touched by an AI? For most people, there's no practical way to even begin answering that question — the tools are either locked inside expensive forensic suites, buried in academic papers, or require you to upload your footage to someone else's server and hope for the best.</p>
+
+<p>That last part matters more than people realize. The videos most worth verifying — evidence, personal recordings, sensitive footage — are exactly the videos you <em>shouldn't</em> be uploading to a random website.</p>
+
+<p>So I built <a href="https://thumpersecure.github.io/quevidkit/"><strong>quevidkit</strong></a>: a free, open-source video forensics lab that runs the analysis <strong>entirely on your own device</strong>, right in the browser. No upload. No account. No tracking. Your video never leaves your hands.</p>
+
+<p><strong>Try it here: <a href="https://thumpersecure.github.io/quevidkit/">thumpersecure.github.io/quevidkit</a></strong></p>
+
+<hr>
+
+<h2>What it actually does</h2>
+
+<p>quevidkit inspects a video file the way a forensic examiner would — except it does it in seconds, and explains its reasoning in plain language.</p>
+
+<p>Point it at a video and it runs a battery of independent forensic checks across six domains:</p>
+
+<ul>
+<li><strong>Metadata &amp; container structure</strong> — Do the file's internal records agree with each other? Are there traces left behind by editing software?</li>
+<li><strong>Timing</strong> — Do the frame timestamps flow naturally, or do they jump the way they do when frames are deleted or footage is spliced?</li>
+<li><strong>Codec &amp; compression</strong> — Was this video encoded once, or does it carry the layered fingerprints of double compression that re-encoding leaves behind?</li>
+<li><strong>Visual quality</strong> — Do blur, blockiness, and noise levels stay consistent, or does the "texture" of the video suddenly change mid-stream?</li>
+<li><strong>Audio</strong> — Does the audio track's spectral signature flow continuously, or does it break the way it does when a different recording is dropped in?</li>
+<li><strong>Provenance</strong> — Does the file carry C2PA content credentials (the emerging industry standard for cryptographically signed media history)?</li>
+</ul>
+
+<p>The full free version runs <strong>19 forensic checks</strong> in total, and every one of them reports not just a score but an explanation: what it looked for, what it found, and — critically — the <em>innocent</em> explanations that could produce the same signal.</p>
+
+<h2>Honest by design</h2>
+
+<p>This is the part I care about most, so I'll be direct about it:</p>
+
+<p><strong>No automated tool can tell you with certainty that a video is fake.</strong> Anyone who tells you otherwise is selling something.</p>
+
+<p>A video re-uploaded to social media gets re-encoded, and re-encoding looks a lot like tampering. A multi-camera edit has "splices" everywhere — because it's supposed to. A screen recording is technically a brand-new video of another video. Real forensics is about weighing evidence, not stamping verdicts.</p>
+
+<p>quevidkit is built around that honesty:</p>
+
+<ul>
+<li>Every result is an <strong>evidence-backed probability</strong>, never a proclamation.</li>
+<li>Multiple independent categories of evidence must <strong>corroborate</strong> each other before the tool raises serious suspicion. One noisy check screaming while everything else looks clean gets penalized, not amplified.</li>
+<li>Every finding ships with its <strong>benign alternative</strong> — the ordinary, non-sinister explanation that could produce the same artifact.</li>
+<li>When there isn't enough evidence to say anything meaningful, it says <strong>"inconclusive"</strong> — arguably the most honest word in forensics.</li>
+</ul>
+
+<p>The verdict comes back as one of four labels — <em>authentic</em>, <em>suspicious</em>, <em>tampered</em>, or <em>inconclusive</em> — with a percentage, a confidence estimate, per-check evidence bars, a timeline of suspicious segments, and a downloadable report you can save or share.</p>
+
+<h2>The AI question</h2>
+
+<p>Yes, it looks for that too.</p>
+
+<p>One of the newer checks scans the frequency domain of sampled frames for the periodic artifacts that GAN and diffusion-based generators tend to leave behind — the mathematical residue of AI upsampling. Another watches for the telltale flicker of an inconsistently regenerated face region.</p>
+
+<p>And in keeping with everything above: the tool explicitly labels this as a <strong>heuristic indicator, not a deepfake classifier</strong>. It's one more line of evidence for you to weigh — not a magic AI detector, because no such thing exists.</p>
+
+<p>It also checks the opposite direction: if a video carries <strong>C2PA content credentials</strong> (the provenance standard backed by Adobe, Microsoft, the BBC, and others), quevidkit detects them and tells you — a <em>positive</em> authenticity signal. And if a file has no provenance data at all? The tool tells you plainly that this is completely normal and means nothing by itself. Most authentic video has none.</p>
+
+<h2>Built for your phone, because that's where video lives</h2>
+
+<p>Video doesn't get verified at a desk anymore. It gets verified on a phone, in the moment, often by someone who is not a forensic analyst.</p>
+
+<p>So the free web app was designed mobile-first: drop in a file (or tap "Try a demo video"), watch the checks run with live progress, and get a verdict on an animated gauge you can read at a glance. The detailed evidence is there when you want to dig — swipeable check cards, plain-language explanations, the raw data if you're technical — and out of your way when you don't. Light mode, dark mode, works offline after the page loads.</p>
+
+<p>For heavier lifting, there's an optional self-hosted server mode: the same open-source project includes a full Python analysis engine with a REST API, a CLI, and a Dockerfile, so anyone can run their own deep-scan backend. The browser app can connect to one — but never requires it.</p>
+
+<h2>Free, open, and yours to inspect</h2>
+
+<p>quevidkit is <strong>MIT-licensed and fully open source</strong>. Every one of the 19 checks is readable code, not a black box — which is exactly what you should demand from any tool that claims to evaluate evidence. If you don't trust it (and healthy skepticism is the entire spirit of this project), you can read precisely what it does: <a href="https://github.com/thumpersecure/quevidkit">github.com/thumpersecure/quevidkit</a>.</p>
+
+<p>The web app is <strong>free to use right now for testing</strong> — and because the analysis runs on your own device rather than my servers, keeping it free costs nothing but goodwill. My hope is that it stays that way.</p>
+
+<h2>Try it on something</h2>
+
+<p>The best way to understand quevidkit is to feed it something:</p>
+
+<ol>
+<li>Open <a href="https://thumpersecure.github.io/quevidkit/"><strong>thumpersecure.github.io/quevidkit</strong></a> — on your phone or laptop.</li>
+<li>Tap <strong>"Try a demo video"</strong>, or drop in any MP4/MOV of your own.</li>
+<li>Hit <strong>Analyze</strong> and watch the checks run.</li>
+<li>Read the verdict — then read <em>why</em>. The "why" is the whole point.</li>
+</ol>
+
+<p>Then try it on a video you exported from an editor. Try it on something a friend AirDropped you. Try it on a clip you downloaded from social media, and watch it correctly identify the re-encoding — while telling you that a platform re-encode is not the same thing as tampering.</p>
+
+<p>That gap — between <em>"this file has been processed"</em> and <em>"this file is lying to you"</em> — is where real media literacy lives. quevidkit won't close that gap for you. But it's a free flashlight for looking into it.</p>
+
+<hr>
+
+<p><em>quevidkit is free and open source (MIT). Web app: <a href="https://thumpersecure.github.io/quevidkit/">thumpersecure.github.io/quevidkit</a> · Source: <a href="https://github.com/thumpersecure/quevidkit">github.com/thumpersecure/quevidkit</a>. Results are evidence-backed probability estimates, not legal certainty — expert interpretation is always required for anything that matters.</em></p>
+
+</article>
+</body>
+</html>
