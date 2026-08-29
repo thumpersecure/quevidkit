@@ -19,6 +19,8 @@ from .ffprobe_utils import (
     parse_ratio,
     to_float,
 )
+from .forensics_provenance import container_edit_trace_checks, provenance_manifest_checks
+from .forensics_vision import frequency_artifact_checks, sensor_noise_correlation_checks
 from .models import (
     AnalysisOptions,
     AnalysisResult,
@@ -825,7 +827,8 @@ def audio_spectral_checks(video_path: str, basic_probe: dict[str, Any]) -> Check
         )
 
     # Extract audio to temp WAV
-    tmp_wav = tempfile.mktemp(suffix=".wav", prefix="qvk_audio_")
+    tmp_wav_fd, tmp_wav = tempfile.mkstemp(suffix=".wav", prefix="qvk_audio_")
+    os.close(tmp_wav_fd)
     try:
         sample_rate = 16000
         ok = extract_audio_pcm(video_path, tmp_wav, sample_rate=sample_rate)
@@ -1716,8 +1719,10 @@ def thumbnail_mismatch_checks(
         )
 
     # Extract thumbnail and first frame
-    thumb_path = tempfile.mktemp(suffix=".jpg", prefix="qvk_thumb_")
-    frame_path = tempfile.mktemp(suffix=".jpg", prefix="qvk_frame_")
+    thumb_fd, thumb_path = tempfile.mkstemp(suffix=".jpg", prefix="qvk_thumb_")
+    os.close(thumb_fd)
+    frame_fd, frame_path = tempfile.mkstemp(suffix=".jpg", prefix="qvk_frame_")
+    os.close(frame_fd)
     try:
         thumb_ok = extract_thumbnail(video_path, thumb_path)
         if not thumb_ok or not os.path.exists(thumb_path) or os.path.getsize(thumb_path) < 100:
@@ -2169,6 +2174,26 @@ _CHECK_CONTEXT: dict[str, dict[str, str]] = {
         "tampered": "Splicing content encoded at two different quality levels creates a bimodal distribution with two distinct packet-size peaks.",
         "benign": "Highly variable content (action mixed with static shots) and VBR encoding can produce wide distributions that appear somewhat bimodal to statistical tests.",
     },
+    "sensor_noise_correlation": {
+        "what": "Compares high-frequency noise-residue signatures across temporal windows of the video (a lightweight PRNU-style heuristic, not true sensor fingerprinting).",
+        "tampered": "A drop in noise-signature correlation between windows suggests footage from a different camera/sensor or encoding pipeline was spliced in.",
+        "benign": "Lighting changes, denoising filters, and quality-adaptive encoding can shift the noise floor across a clip without any splicing having occurred.",
+    },
+    "frequency_artifact_scan": {
+        "what": "Scans the 2D frequency spectrum of sampled frames for periodic energy consistent with GAN/diffusion upsampling artifacts, plus an optional face-region flicker signal.",
+        "tampered": "Sustained periodic mid/high-frequency energy or elevated face-region flicker can be a signature of AI-generated or AI-modified frames.",
+        "benign": "Sharpening filters, certain compression settings, screen-recorded content, and fine repeating textures (fabric, screens, grilles) can produce similar frequency-domain periodicity without any AI generation involved. This is a heuristic indicator, not a deepfake classifier.",
+    },
+    "provenance_manifest": {
+        "what": "Scans the file for C2PA/JUMBF content-credential manifests and XMP metadata that record editing/provenance history.",
+        "tampered": "This check does not itself flag tampering — it reports whether provenance data is present, and if present, what editing tools it names.",
+        "benign": "Most video, authentic or edited, carries no C2PA/JUMBF manifest at all — its absence is normal and is not evidence of tampering. XMP edit-tool markers reflect ordinary, legitimate editing.",
+    },
+    "container_edit_trace": {
+        "what": "Walks the raw top-level ISO-BMFF (MP4/MOV) box layout looking for structural traces an editor can leave behind: oversized free/skip padding, vendor 'uuid' boxes, or unusual box-count fragmentation.",
+        "tampered": "Large leftover free/skip padding or an unusually fragmented box layout can indicate the file was modified in place by an editing tool rather than produced by a single encoding pass.",
+        "benign": "Many legitimate editing, remuxing, and streaming-optimization tools leave free/skip padding or extra boxes as a normal side effect of how they write files.",
+    },
 }
 
 
@@ -2464,6 +2489,30 @@ def analyze_video(path: str, options: AnalysisOptions | None = None) -> Analysis
                 checks.append(bitrate_distribution_checks(packet_probe, duration_s))
             except Exception as exc:
                 debug_payload["probe_errors"].append(f"bitrate_distribution: {exc}")
+
+        # 12. Sensor noise correlation (PRNU-lite)
+        try:
+            checks.append(sensor_noise_correlation_checks(path, duration_s, fps_hint, opts))
+        except Exception as exc:
+            debug_payload["probe_errors"].append(f"sensor_noise_correlation: {exc}")
+
+        # 13. Frequency-domain AI/deepfake artifact heuristic
+        try:
+            checks.append(frequency_artifact_checks(path, duration_s, fps_hint, opts))
+        except Exception as exc:
+            debug_payload["probe_errors"].append(f"frequency_artifact_scan: {exc}")
+
+        # 14. C2PA/JUMBF/XMP provenance manifest detection
+        try:
+            checks.append(provenance_manifest_checks(path, basic_probe))
+        except Exception as exc:
+            debug_payload["probe_errors"].append(f"provenance_manifest: {exc}")
+
+        # 15. Container box-level editing-trace scan
+        try:
+            checks.append(container_edit_trace_checks(path, basic_probe))
+        except Exception as exc:
+            debug_payload["probe_errors"].append(f"container_edit_trace: {exc}")
 
     tamper_probability, confidence, label = fuse_scores(checks, sensitivity=opts.sensitivity)
 

@@ -2,14 +2,39 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Video Forensics Lab — quevidkit</title>
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#08111f" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#eef2f9" media="(prefers-color-scheme: light)">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/styles.css">
+  <script>
+    // Apply saved theme before first paint to avoid a flash of the wrong theme.
+    (function () {
+      try {
+        var saved = localStorage.getItem("qvk-theme");
+        if (saved === "light" || saved === "dark") {
+          document.documentElement.setAttribute("data-theme", saved);
+        }
+      } catch (e) { /* localStorage unavailable; fall back to system preference */ }
+    })();
+  </script>
 </head>
 <body>
+  <div class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">QV</span>
+      <span class="brand-name">quevidkit</span>
+      <span class="version-tag">v1.0.0</span>
+    </div>
+    <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle light and dark theme" title="Toggle theme">
+      <span id="theme-toggle-icon" aria-hidden="true">&#9789;</span>
+    </button>
+  </div>
+
   <main class="container">
     <section class="card hero-card">
       <p class="eyebrow">quevidkit · Forensic Analysis</p>
@@ -59,23 +84,45 @@
               <span>Detection sensitivity (0–1)</span>
               <input id="sensitivity" type="number" min="0.05" max="0.99" step="0.01" value="0.7">
             </label>
-            <label><input id="metadata-scan" type="checkbox" checked> Metadata &amp; codec scan</label>
-            <label><input id="packet-scan" type="checkbox" checked> Packet timing scan</label>
-            <label><input id="frame-scan" type="checkbox" checked> Frame structure scan</label>
-            <label><input id="quality-scan" type="checkbox" checked> Visual quality scan</label>
-            <label><input id="debug-payload" type="checkbox"> Include debug data in results</label>
+          </div>
+          <div class="advanced-grid" style="padding-top:0;">
+            <div class="toggle-grid">
+              <label class="checkbox-row"><input id="metadata-scan" type="checkbox" checked> Metadata &amp; codec scan</label>
+              <label class="checkbox-row"><input id="packet-scan" type="checkbox" checked> Packet timing scan</label>
+              <label class="checkbox-row"><input id="frame-scan" type="checkbox" checked> Frame structure scan</label>
+              <label class="checkbox-row"><input id="quality-scan" type="checkbox" checked> Visual quality scan</label>
+              <label class="checkbox-row"><input id="debug-payload" type="checkbox"> Include debug data in results</label>
+            </div>
           </div>
         </details>
 
-        <div id="error-message" class="error-message hidden"></div>
-        <button id="analyze-btn" type="submit">Analyze Video</button>
+        <div id="error-message" class="error-message hidden" role="alert"></div>
+        <button id="analyze-btn" type="submit">Analyze video</button>
       </form>
     </section>
 
-    <section id="progress-card" class="card hidden">
-      <h2>Analysis in progress</h2>
-      <p id="progress-text">Waiting in queue...</p>
+    <section id="progress-card" class="card hidden" aria-live="polite">
+      <div class="progress-head">
+        <span class="pulse-dot" aria-hidden="true"></span>
+        <h2 style="margin:0;">Analysis in progress</h2>
+      </div>
+      <p id="progress-text">Waiting in queue…</p>
       <div class="progress-track"><div id="progress-bar" class="progress-bar"></div></div>
+      <p class="progress-percent"><span id="progress-percent-text">0</span>% complete</p>
+      <ul id="progress-steps" class="progress-steps">
+        <li id="step-queued" class="dot-item"><span class="dot"></span>Queued</li>
+        <li id="step-extracting_metadata" class="dot-item"><span class="dot"></span>Metadata</li>
+        <li id="step-forensic_analysis" class="dot-item"><span class="dot"></span>Forensic analysis</li>
+        <li id="step-advanced_forensics" class="dot-item"><span class="dot"></span>Advanced checks</li>
+        <li id="step-done" class="dot-item"><span class="dot"></span>Done</li>
+      </ul>
+
+      <div id="result-skeleton" aria-hidden="true">
+        <div class="skeleton skeleton-block w-40" style="height:26px;"></div>
+        <div class="skeleton skeleton-block w-80"></div>
+        <div class="skeleton skeleton-block w-60"></div>
+        <div class="skeleton skeleton-card" style="margin-top:12px;"></div>
+      </div>
     </section>
 
     <section id="result-card" class="card hidden">
@@ -83,8 +130,24 @@
       <div class="report-overview">
         <div class="report-badge-wrap">
           <span id="verdict" class="verdict-badge">INCONCLUSIVE</span>
-          <p id="plain-meaning" class="muted"></p>
         </div>
+
+        <div class="gauge-row">
+          <div class="gauge-wrap">
+            <svg viewBox="0 0 120 120">
+              <circle class="gauge-track" cx="60" cy="60" r="54"></circle>
+              <circle id="gauge-fill" class="gauge-fill" cx="60" cy="60" r="54"></circle>
+            </svg>
+            <div class="gauge-center">
+              <span id="gauge-value" class="gauge-value">0%</span>
+              <span class="gauge-label">tamper risk</span>
+            </div>
+          </div>
+          <div class="gauge-meaning">
+            <p id="plain-meaning" class="muted" style="margin:0;"></p>
+          </div>
+        </div>
+
         <div class="metric-grid">
           <div class="metric-card">
             <p>Tamper probability</p>
@@ -99,27 +162,39 @@
             <h3 id="duration">0s</h3>
           </div>
         </div>
-        <div class="meter-track"><div id="risk-meter" class="meter-fill"></div></div>
+        <div class="meter-track" title="Risk meter"><div id="risk-meter" class="meter-fill"></div></div>
       </div>
 
-      <h3>What this means</h3>
-      <ul id="explanation-list"></ul>
+      <details class="advanced" open>
+        <summary>What this means</summary>
+        <ul id="explanation-list" style="padding:0 16px 16px; margin:0;"></ul>
+      </details>
 
-      <h3>Evidence strength by forensic check</h3>
-      <div id="check-bars" class="check-bars"></div>
+      <details class="advanced">
+        <summary>Evidence strength by forensic check</summary>
+        <div id="check-bars" class="check-bars" style="padding:0 16px 16px;"></div>
+      </details>
 
-      <h3>Timeline of suspicious moments</h3>
-      <div id="timeline-track" class="timeline-track"></div>
-      <ul id="segment-list"></ul>
+      <details class="advanced">
+        <summary>Timeline of suspicious moments</summary>
+        <div style="padding:0 16px 16px;">
+          <div id="timeline-track" class="timeline-track"></div>
+          <ul id="segment-list" style="margin:0; padding-left:20px;"></ul>
+        </div>
+      </details>
 
-      <button id="download-report-btn" type="button">Download HTML report</button>
+      <button id="download-report-btn" class="btn-secondary" type="button" style="margin-top:14px;">Download HTML report</button>
 
       <details class="advanced">
         <summary>Raw JSON data (technical)</summary>
-        <pre id="checks-json"></pre>
+        <pre id="checks-json" style="margin:0 16px 16px;"></pre>
       </details>
     </section>
   </main>
+
+  <footer class="app-footer">
+    quevidkit v1.0.0 · forensic analysis runs on this server, nothing is uploaded elsewhere
+  </footer>
 
   <script src="/static/app.js"></script>
 </body>

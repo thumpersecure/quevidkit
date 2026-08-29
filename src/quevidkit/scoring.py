@@ -99,7 +99,7 @@ def fuse_scores(checks: list[CheckResult], sensitivity: float) -> tuple[float, f
     probability *= lone_penalty
 
     # Confidence depends on coverage and signal agreement.
-    coverage = min(1.0, len(checks) / 15.0)  # updated from 11 to 15 (more checks now)
+    coverage = min(1.0, len(checks) / 19.0)  # updated from 15 to 19 (checks 16-19 added in v1.0.0)
     agreement = 1.0 - abs(base - 0.5) * 0.5
     confidence = clamp01((coverage * 0.6) + (gate * 0.2) + (agreement * 0.1) + (corr * 0.1))
 

@@ -1,0 +1,21 @@
+[Unit]
+Description=quevidkit forensic video analysis web service
+After=network.target
+
+[Service]
+Type=simple
+User=quevidkit
+Group=quevidkit
+WorkingDirectory=/opt/quevidkit
+EnvironmentFile=/opt/quevidkit/.env
+# --workers 1 is required: the session-key store and job store are
+# in-memory per-process, so running more than one uvicorn worker splits
+# that state across processes and causes "unknown session key" errors.
+# Scale out with additional service instances behind a reverse proxy
+# load balancer instead, if needed.
+ExecStart=/opt/quevidkit/venv/bin/uvicorn quevidkit.webapp:app --host 127.0.0.1 --port 8000 --workers 1
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

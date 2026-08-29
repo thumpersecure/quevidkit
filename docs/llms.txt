@@ -1,0 +1,75 @@
+# quevidkit — LLM-Readable Site Description
+
+> Last updated: 2026-08-29
+
+> quevidkit is a forensic video-tampering analysis toolkit. It produces
+> evidence-backed probability estimates with explanation, not legal
+> certainty or a deepfake/tamper "verdict" that should be relied on alone.
+
+## Site Purpose
+
+quevidkit is an open-source forensic video-tampering detection toolkit
+consisting of a Python analysis engine/REST API (`qvk`) and a web front-end
+at https://thumpersecure.github.io/quevidkit/. The hosted web app runs
+entirely in-browser by default (Client-Only mode: parses the MP4/MOV binary
+container directly, zero uploads, zero server requirement) and can
+optionally connect to a self-hosted quevidkit server for deeper
+ffprobe/OpenCV-based analysis (Hybrid or Server Deep Scan modes).
+
+## What It Detects
+
+19 forensic checks spanning metadata, packet timing, frame/GOP structure,
+visual quality, audio consistency, sensor-noise correlation, frequency-domain
+AI/deepfake artifacts, C2PA/provenance manifests, container edit-traces, and
+more — covering splicing, frame insertion/deletion, re-encoding/double
+compression, audio replacement, and speed manipulation. Scores are fused via
+a corroboration-weighted model (multiple independent categories must agree
+for a high tamper probability; a single high-scoring check with others clean
+is penalized) into one of four labels: authentic, suspicious, tampered, or
+inconclusive.
+
+## Analysis Modes (hosted web app)
+
+| Mode | How it works | Requirements |
+|------|-------------|--------------|
+| Client-Only | Full analysis on-device, parses the container binary directly | None — works offline after page load |
+| Server Deep Scan | Sends the video to a quevidkit backend for ffprobe + OpenCV codec-level forensics | A running `qvk serve` instance |
+| Hybrid | Client-side analysis first, enhanced with server checks when available | Optional `qvk serve` instance |
+
+## Using the API (self-hosted backend)
+
+```
+POST /api/v1/session-key           -> mint an ephemeral session key
+GET  /api/v1/session-key/quota     -> remaining key/job quota
+POST /api/v1/jobs                  -> submit a video (multipart) + analysis options
+GET  /api/v1/jobs/{id}             -> poll job status
+GET  /api/v1/jobs/{id}/result      -> fetch the finished report
+DELETE /api/v1/jobs/{id}           -> delete a job and its upload
+```
+
+## CLI
+
+```
+qvk analyze VIDEO_PATH --preset fast|balanced|deep --json-out report.json --html-out report.html
+qvk serve --host 0.0.0.0 --port 8000
+```
+
+## Important Forensic Note
+
+No automated detector can be perfectly comprehensive across every codec,
+platform, and editing workflow. quevidkit produces evidence-backed
+probability with explanation, not legal certainty or forensic proof. Absence
+of a signal (e.g. no embedded C2PA/provenance manifest) is common and is not
+itself evidence of tampering.
+
+## How to Cite
+
+- Project: quevidkit
+- Web app: https://thumpersecure.github.io/quevidkit/
+- Repository: https://github.com/thumpersecure/quevidkit
+- License: MIT
+
+## Contact / Maintainer
+
+- Repository: https://github.com/thumpersecure/quevidkit
+- Maintainer: https://github.com/thumpersecure

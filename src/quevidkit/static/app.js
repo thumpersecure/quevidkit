@@ -2,6 +2,8 @@ const form = document.getElementById("upload-form");
 const progressCard = document.getElementById("progress-card");
 const progressText = document.getElementById("progress-text");
 const progressBar = document.getElementById("progress-bar");
+const progressPercentText = document.getElementById("progress-percent-text");
+const resultSkeleton = document.getElementById("result-skeleton");
 const resultCard = document.getElementById("result-card");
 const verdictEl = document.getElementById("verdict");
 const plainMeaningEl = document.getElementById("plain-meaning");
@@ -9,6 +11,8 @@ const probabilityEl = document.getElementById("probability");
 const confidenceEl = document.getElementById("confidence");
 const durationEl = document.getElementById("duration");
 const riskMeterEl = document.getElementById("risk-meter");
+const gaugeFillEl = document.getElementById("gauge-fill");
+const gaugeValueEl = document.getElementById("gauge-value");
 const explanationList = document.getElementById("explanation-list");
 const segmentList = document.getElementById("segment-list");
 const checkBars = document.getElementById("check-bars");
@@ -17,17 +21,68 @@ const analyzeBtn = document.getElementById("analyze-btn");
 const downloadReportBtn = document.getElementById("download-report-btn");
 const errorMessage = document.getElementById("error-message");
 const timelineTrack = document.getElementById("timeline-track");
+const themeToggleBtn = document.getElementById("theme-toggle");
+const themeToggleIcon = document.getElementById("theme-toggle-icon");
 
 let sessionKeyRecord = null;
 let latestResult = null;
 const RISK_GRADIENT = "linear-gradient(90deg, #3dd68c 0%, #f6b73c 55%, #ff5a6b 100%)";
+const GAUGE_CIRCUMFERENCE = 339.292; // 2 * PI * r(54), matches the SVG in index.html
 
 const PHASE_LABELS = {
   queued: "Waiting in queue...",
   extracting_metadata: "Reading video metadata...",
   forensic_analysis: "Running forensic analysis...",
+  advanced_forensics: "Running advanced forensic checks...",
   done: "Complete"
 };
+
+const PHASE_ORDER = ["queued", "extracting_metadata", "forensic_analysis", "advanced_forensics", "done"];
+
+// Escape any string before it goes into innerHTML. Result fields (check names,
+// summaries, segment categories) come from this server's own analysis pipeline,
+// but are treated as untrusted input at render time as a defensive default.
+function esc(s) {
+  const d = document.createElement("div");
+  d.textContent = s == null ? "" : String(s);
+  return d.innerHTML;
+}
+
+// -- theme toggle -----------------------------------------------------------
+
+function systemPrefersLight() {
+  return window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches;
+}
+
+function applyThemeIcon(theme) {
+  if (!themeToggleIcon) return;
+  const effective = theme || (systemPrefersLight() ? "light" : "dark");
+  themeToggleIcon.textContent = effective === "light" ? "☽" : "☉";
+}
+
+function initTheme() {
+  let saved = null;
+  try {
+    saved = localStorage.getItem("qvk-theme");
+  } catch (e) {
+    saved = null;
+  }
+  applyThemeIcon(saved);
+  if (!themeToggleBtn) return;
+  themeToggleBtn.addEventListener("click", () => {
+    const current = document.documentElement.getAttribute("data-theme") || (systemPrefersLight() ? "light" : "dark");
+    const next = current === "light" ? "dark" : "light";
+    document.documentElement.setAttribute("data-theme", next);
+    try {
+      localStorage.setItem("qvk-theme", next);
+    } catch (e) {
+      // localStorage unavailable (e.g. private mode) — theme choice just won't persist.
+    }
+    applyThemeIcon(next);
+  });
+}
+
+initTheme();
 
 const CHECK_NAMES = {
   metadata_codec_consistency: "Metadata Consistency",
@@ -81,6 +136,21 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function updateProgressSteps(phase) {
+  const currentIndex = PHASE_ORDER.indexOf(phase);
+  PHASE_ORDER.forEach((step, index) => {
+    const el = document.getElementById(`step-${step}`);
+    if (!el) return;
+    el.classList.remove("done", "active");
+    if (currentIndex === -1) return;
+    if (index < currentIndex || (step === "done" && phase === "done")) {
+      el.classList.add("done");
+    } else if (index === currentIndex) {
+      el.classList.add("active");
+    }
+  });
+}
+
 async function pollJob(jobId) {
   let attempts = 0;
   const maxAttempts = 900;
@@ -103,7 +173,12 @@ async function pollJob(jobId) {
     const status = await statusResponse.json();
     const phaseLabel = PHASE_LABELS[status.phase] || status.message || status.phase;
     progressText.textContent = phaseLabel;
-    progressBar.style.width = `${status.progress_percent || 0}%`;
+    const pct = status.progress_percent || 0;
+    progressBar.style.width = `${pct}%`;
+    if (progressPercentText) {
+      progressPercentText.textContent = Math.round(pct);
+    }
+    updateProgressSteps(status.phase);
 
     if (status.status === "completed") {
       let resultResponse;
@@ -213,8 +288,8 @@ function renderCheckBars(result) {
     const score = Math.max(0, Math.min(100, (check.score || 0) * 100));
     const conf = Math.max(0, Math.min(100, (check.confidence || 0) * 100));
     wrapper.innerHTML = `
-      <h4>${humanizeCheckName(check.name)}</h4>
-      <p class="muted">${explainCheck(check)}</p>
+      <h4>${esc(humanizeCheckName(check.name))}</h4>
+      <p class="muted">${esc(explainCheck(check))}</p>
       <div class="bar-row">
         <span>Anomaly score</span>
         <div class="bar-track"><div class="bar-fill-score" style="width:${score.toFixed(1)}%"></div></div>
@@ -225,7 +300,7 @@ function renderCheckBars(result) {
         <div class="bar-track"><div class="bar-fill-confidence" style="width:${conf.toFixed(1)}%"></div></div>
         <strong>${conf.toFixed(1)}%</strong>
       </div>
-      <p>${check.summary || ""}</p>
+      <p class="check-summary">${esc(check.summary || "")}</p>
     `;
     checkBars.appendChild(wrapper);
   });
@@ -255,7 +330,7 @@ function renderTimeline(result) {
       const width = Math.max(0.4, end - start);
       const conf = (segment.confidence || 0).toFixed(2);
       const title = `[${segment.category}] ${segment.start_s.toFixed(2)}s–${segment.end_s.toFixed(2)}s (confidence ${conf})`;
-      return `<div class="timeline-block" style="left:${start.toFixed(2)}%;width:${width.toFixed(2)}%" title="${title}"></div>`;
+      return `<div class="timeline-block" style="left:${start.toFixed(2)}%;width:${width.toFixed(2)}%" title="${esc(title)}"></div>`;
     })
     .join("");
   timelineTrack.innerHTML = blocks;
@@ -274,20 +349,20 @@ function buildGraphicalReportHtml(result) {
       const conf = Math.max(0, Math.min(100, (check.confidence || 0) * 100));
       return `
       <div class="check">
-        <h3>${humanizeCheckName(check.name)}</h3>
-        <p>${explainCheck(check)}</p>
+        <h3>${esc(humanizeCheckName(check.name))}</h3>
+        <p>${esc(explainCheck(check))}</p>
         <div class="bar"><div class="fill score" style="width:${score.toFixed(1)}%"></div></div>
         <p><strong>Anomaly score:</strong> ${score.toFixed(1)}%</p>
         <div class="bar"><div class="fill conf" style="width:${conf.toFixed(1)}%"></div></div>
         <p><strong>Confidence:</strong> ${conf.toFixed(1)}%</p>
-        <p>${check.summary || ""}</p>
+        <p>${esc(check.summary || "")}</p>
       </div>`;
     })
     .join("");
-  const explanation = (result.explanation || []).map((line) => `<li>${line}</li>`).join("");
+  const explanation = (result.explanation || []).map((line) => `<li>${esc(line)}</li>`).join("");
   const segments = (result.suspicious_segments || [])
     .slice(0, 30)
-    .map((segment) => `<li>[${segment.category}] ${segment.start_s.toFixed(2)}s – ${segment.end_s.toFixed(2)}s (confidence ${(segment.confidence || 0).toFixed(2)})</li>`)
+    .map((segment) => `<li>[${esc(segment.category)}] ${segment.start_s.toFixed(2)}s – ${segment.end_s.toFixed(2)}s (confidence ${(segment.confidence || 0).toFixed(2)})</li>`)
     .join("");
   const probability = Math.max(0, Math.min(100, (result.tamper_probability || 0) * 100));
   return `<!doctype html>
@@ -310,10 +385,10 @@ ul{padding-left:20px}
 </style></head><body>
 <div class="shell">
 <div class="card">
-  <p class="eyebrow">quevidkit · Forensic Report</p>
+  <p class="eyebrow">quevidkit v1.0.0 · Forensic Report</p>
   <h1>Video Forensics Lab — Analysis Results</h1>
-  <span class="badge">${String(result.label || "inconclusive").toUpperCase()}</span>
-  <p>${plainMeaning(result.label, result.tamper_probability || 0, result.confidence || 0)}</p>
+  <span class="badge">${esc(String(result.label || "inconclusive").toUpperCase())}</span>
+  <p>${esc(plainMeaning(result.label, result.tamper_probability || 0, result.confidence || 0))}</p>
   <p><strong>Tamper probability:</strong> ${probability.toFixed(1)}%</p>
   <p><strong>Confidence:</strong> ${((result.confidence || 0) * 100).toFixed(1)}%</p>
   <div class="meter"><div></div></div>
@@ -323,6 +398,15 @@ ul{padding-left:20px}
 <div class="card"><h2>Suspicious segments</h2><ul>${segments || "<li>None detected.</li>"}</ul></div>
 </div>
 </body></html>`;
+}
+
+function renderGauge(label, probability) {
+  if (!gaugeFillEl || !gaugeValueEl) return;
+  const pct = Math.max(0, Math.min(100, probability * 100));
+  const offset = GAUGE_CIRCUMFERENCE * (1 - pct / 100);
+  gaugeFillEl.style.strokeDashoffset = String(offset);
+  gaugeFillEl.style.stroke = verdictColor(label);
+  gaugeValueEl.textContent = `${pct.toFixed(0)}%`;
 }
 
 function renderResult(result) {
@@ -337,6 +421,7 @@ function renderResult(result) {
   confidenceEl.textContent = `${(confidence * 100).toFixed(1)}%`;
   durationEl.textContent = `${Number(result.duration_s || 0).toFixed(2)}s`;
   riskMeterEl.style.width = `${(probability * 100).toFixed(1)}%`;
+  renderGauge(label, probability);
 
   explanationList.innerHTML = "";
   (result.explanation || []).forEach((line) => {
@@ -381,8 +466,15 @@ form.addEventListener("submit", async (event) => {
   analyzeBtn.disabled = true;
   resultCard.classList.add("hidden");
   progressCard.classList.remove("hidden");
+  if (resultSkeleton) {
+    resultSkeleton.classList.remove("hidden");
+  }
   progressText.textContent = "Uploading...";
   progressBar.style.width = "5%";
+  if (progressPercentText) {
+    progressPercentText.textContent = "0";
+  }
+  updateProgressSteps("queued");
 
   const data = new FormData();
   data.append("file", file);
@@ -402,9 +494,17 @@ form.addEventListener("submit", async (event) => {
     const job = await response.json();
     const result = await pollJob(job.job_id);
     progressCard.classList.add("hidden");
+    if (resultSkeleton) {
+      resultSkeleton.classList.add("hidden");
+    }
     renderResult(result);
+    const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    resultCard.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
   } catch (error) {
     progressCard.classList.add("hidden");
+    if (resultSkeleton) {
+      resultSkeleton.classList.add("hidden");
+    }
     showError(error.message);
   } finally {
     analyzeBtn.disabled = false;

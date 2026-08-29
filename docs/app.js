@@ -14,13 +14,15 @@ import {
   structureCheck,
   visualFrameCheck,
   audioConsistencyCheck,
+  provenanceManifestCheck,
+  containerEditTraceCheck,
 } from './lib/checks.js';
 import { fuseScores, buildExplanation, clamp01 } from './lib/scoring.js';
 import { downloadReport } from './lib/report.js';
 import {
   dom, showProgress, hideProgress, showError, hideError,
   renderResult, setCheckStatus, getOptions, applyPreset, PRESETS,
-  qvkLog, initDebugPanel,
+  qvkLog, initDebugPanel, renderCheckList, STAGES,
 } from './lib/ui.js';
 
 // ── State ────────────────────────────────────────────────────────────────────
@@ -179,6 +181,26 @@ async function runClientAnalysis(file, options) {
       setCheckStatus('audio', 'done');
     } catch {
       setCheckStatus('audio', 'error');
+    }
+
+    setCheckStatus('provenance', 'running');
+    showProgress(44, 'Scanning provenance signatures...', 'Provenance forensics');
+    try {
+      const c5 = provenanceManifestCheck(buffer);
+      checks.push(c5);
+      setCheckStatus('provenance', 'done');
+    } catch {
+      setCheckStatus('provenance', 'error');
+    }
+
+    setCheckStatus('edittrace', 'running');
+    showProgress(46, 'Checking container edit traces...', 'Edit-trace forensics');
+    try {
+      const c6 = containerEditTraceCheck(parsed);
+      checks.push(c6);
+      setCheckStatus('edittrace', 'done');
+    } catch {
+      setCheckStatus('edittrace', 'error');
     }
   }
 
@@ -340,10 +362,69 @@ function mergeReports(client, server) {
 
 // ── Event wiring ─────────────────────────────────────────────────────────────
 
+// ── File input display + demo loader ─────────────────────────────────────────
+
+function formatBytes(n) {
+  if (!n) return '';
+  const u = ['B', 'KB', 'MB', 'GB'];
+  let i = 0;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return `${n.toFixed(n < 10 && i > 0 ? 1 : 0)} ${u[i]}`;
+}
+
+function reflectSelectedFile() {
+  const dz = document.getElementById('dropzone');
+  const titleEl = document.getElementById('dropzone-title');
+  const fileEl = document.getElementById('dropzone-file');
+  const file = dom.fileInput?.files?.[0];
+  if (!dz || !titleEl || !fileEl) return;
+  if (file) {
+    dz.classList.add('has-file');
+    titleEl.textContent = 'Ready to analyze';
+    fileEl.textContent = `${file.name} · ${formatBytes(file.size)}`;
+    fileEl.classList.remove('hidden');
+  } else {
+    dz.classList.remove('has-file');
+    titleEl.textContent = 'Choose a video or tap to browse';
+    fileEl.textContent = '';
+    fileEl.classList.add('hidden');
+  }
+}
+
+async function loadDemoVideo() {
+  const btn = document.getElementById('demo-btn');
+  const original = btn?.innerHTML;
+  try {
+    if (btn) { btn.disabled = true; btn.textContent = 'Loading demo…'; }
+    qvkLog('Fetching demo clip ./assets/demo.mp4');
+    const resp = await fetch('./assets/demo.mp4');
+    if (!resp.ok) throw new Error(`demo fetch ${resp.status}`);
+    const blob = await resp.blob();
+    const file = new File([blob], 'demo.mp4', { type: blob.type || 'video/mp4' });
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    dom.fileInput.files = dt.files;
+    reflectSelectedFile();
+    qvkLog(`Demo loaded (${blob.size} bytes)`, 'ok');
+  } catch (e) {
+    qvkLog(`Demo load failed: ${e.message}`, 'err');
+    showError(`Could not load the demo video: ${e.message}`);
+  } finally {
+    if (btn) { btn.disabled = false; if (original != null) btn.innerHTML = original; }
+  }
+}
+
 function init() {
   if (dom.presetSelect) {
     dom.presetSelect.addEventListener('change', () => applyPreset(dom.presetSelect.value));
   }
+
+  if (dom.fileInput) {
+    dom.fileInput.addEventListener('change', reflectSelectedFile);
+  }
+
+  const demoBtn = document.getElementById('demo-btn');
+  if (demoBtn) demoBtn.addEventListener('click', loadDemoVideo);
 
   if (dom.testServerBtn) {
     dom.testServerBtn.addEventListener('click', async () => {
@@ -433,14 +514,27 @@ function init() {
     dom.modeSelect.value = params.get('mode');
   }
 
+  // Reveal the server-connection panel when a mode that needs it is selected.
+  const serverPanel = document.getElementById('server-panel');
+  const syncServerPanel = () => {
+    if (!serverPanel || !dom.modeSelect) return;
+    const needsServer = dom.modeSelect.value === 'remote' || dom.modeSelect.value === 'hybrid';
+    if (needsServer) serverPanel.open = true;
+  };
+  if (dom.modeSelect) dom.modeSelect.addEventListener('change', syncServerPanel);
+  syncServerPanel();
+
+  // Populate the progress check-list up front so it's ready before first run.
+  renderCheckList();
+
   initDebugPanel();
   qvkLog(`quevidkit UI ready. page=${location.protocol}//${location.host} · server=${dom.serverUrl?.value || '(none)'} · mode=${dom.modeSelect?.value || 'client'}`, 'ok');
 }
 
 function resetCheckStatuses() {
-  for (const name of ['container', 'timing', 'structure', 'audio', 'visual']) {
-    setCheckStatus(name, 'pending');
-  }
+  // Rebuild the progress list from the stage definitions, then reset each row.
+  renderCheckList();
+  for (const s of STAGES) setCheckStatus(s.id, 'pending');
 }
 
 init();

@@ -2,7 +2,7 @@
 
 https://thumpersecure.github.io/quevidkit/
 
-# quevidkit v3.31
+# quevidkit v1.0.0
 
 quevidkit is a forensic video tampering analysis toolkit with:
 
@@ -26,6 +26,10 @@ quevidkit is a forensic video tampering analysis toolkit with:
   - **thumbnail vs first-frame mismatch** detection
   - **audio-video sync drift** (A/V timing offset at multiple checkpoints)
   - **bitrate distribution bimodality** (statistical test for merged encoding profiles)
+  - **sensor noise correlation** (splicing from a different camera/sensor via cross-correlation of noise residue across temporal windows)
+  - **frequency-domain AI-artifact heuristic** (2D-FFT periodicity indicator for AI/GAN-generation artifacts, with optional face-region flicker signal)
+  - **C2PA/provenance manifest detection** (content-credential and XMP metadata presence)
+  - **container edit-trace scan** (ISO-BMFF box-level structural traces left by editing tools)
 
 ## Important forensic note
 
@@ -66,7 +70,7 @@ The web UI (both the hosted GitHub Pages app and the self-hosted `qvk serve` ver
 |---|---|---|---|---|
 | **Fast** | 1.0 s | 500 | 0.50 | Quick scan with lowest accuracy — good for a first pass. |
 | **Balanced** | 0.5 s | 1 000 | 0.70 | Default scan — recommended for most videos. |
-| **Deep** | 0.2 s | 2 000 | 0.85 | Thorough scan with highest accuracy — runs 11 additional advanced forensic checks. |
+| **Deep** | 0.2 s | 2 000 | 0.85 | Thorough scan with highest accuracy — runs 15 additional advanced forensic checks. |
 
 Selecting a preset automatically fills in the three advanced numeric fields.  You can still override them manually after choosing a preset.
 
@@ -78,7 +82,7 @@ Selecting a preset automatically fills in the three advanced numeric fields.  Yo
 
 ### Advanced forensic checks (Deep preset)
 
-The **Deep** preset enables `enable_advanced_forensics=True`, which activates 11 additional server-side forensic checks on top of the 4 base checks:
+The **Deep** preset enables `enable_advanced_forensics=True`, which activates 15 additional server-side forensic checks on top of the 4 base checks:
 
 | # | Check | Category | What it detects |
 |---|-------|----------|-----------------|
@@ -93,6 +97,10 @@ The **Deep** preset enables `enable_advanced_forensics=True`, which activates 11
 | 13 | **Thumbnail Mismatch** | metadata | Compares the embedded thumbnail image against the actual first frame. Editing tools often update content but leave the original thumbnail, creating a detectable mismatch. |
 | 14 | **A/V Sync Drift** | timing | Measures audio-video timing offset at 20 checkpoints across the timeline. Splicing without adjusting audio timestamps causes sync jumps or progressive drift at edit points. |
 | 15 | **Bitrate Distribution** | codec | Tests whether the statistical distribution of video packet sizes is unimodal (single encoding source) or bimodal (two merged encoding profiles) using the bimodality coefficient. |
+| 16 | **Sensor Noise Correlation** | quality | Splicing from a different camera/sensor via noise-residue cross-correlation across temporal windows. |
+| 17 | **Frequency Artifact Scan** | quality | Heuristic 2D-FFT periodicity indicator for AI/GAN-generation artifacts, with optional face-region flicker signal — an indicator, not a deepfake classifier. |
+| 18 | **Provenance Manifest** | metadata | Detects C2PA/JUMBF content-credential manifests and XMP metadata; presence is a positive signal, absence is NOT evidence of tampering. |
+| 19 | **Container Edit Trace** | metadata | Raw ISO-BMFF box-level scan for editor-left structural traces (oversized free/skip padding, vendor uuid boxes, box-count fragmentation). |
 
 These checks are automatically enabled when `preset=deep` and can also be explicitly enabled via the `enable_advanced_forensics` option.
 
@@ -145,6 +153,8 @@ Useful flags:
   - per-check toggles
   - debug payload toggle
 
+A social-preview card (`docs/assets/social-preview.gif`) is included for link previews when sharing the project on social media and messaging apps.
+
 ---
 
 ## GitHub Pages app (mobile forensics)
@@ -162,7 +172,7 @@ A full-featured forensic analysis frontend is included in `docs/`. It runs entir
 
 ### Client-side forensic checks (no server needed)
 
-The client-only mode performs **5 independent forensic checks** by parsing the video file binary directly in the browser:
+The client-only mode performs **7 independent forensic checks** by parsing the video file binary directly in the browser:
 
 1. **Container & Metadata** — Parses MP4/MOV atoms (ftyp, moov, mvhd, tkhd, mdhd, stsd, etc.), checks duration consistency, bitrate validation, creation/modification date gaps, editing software markers (Adobe, CapCut, DaVinci, FFmpeg, etc.), edit list complexity, moov/mdat ordering, and free/skip box count.
 
@@ -173,6 +183,10 @@ The client-only mode performs **5 independent forensic checks** by parsing the v
 4. **Visual Frame Analysis** — Extracts frames via Canvas, computes dHash perceptual hashes, Laplacian blur variance, 8×8 blockiness metrics, and luminance histogram correlation. Detects duplicate frames, missing frames, quality shifts, and histogram breaks.
 
 5. **Audio Consistency** — Cross-checks audio/video track durations, audio frame timing regularity, and audio edit list complexity.
+
+6. **Provenance Manifest** — Scans the container for C2PA/JUMBF content-credential manifests and XMP metadata. Presence is a positive authenticity signal; absence is not evidence of tampering.
+
+7. **Container Edit Trace** — Scans raw ISO-BMFF boxes for editor-left structural traces: oversized free/skip padding, vendor-specific uuid boxes, and box-count fragmentation.
 
 All checks feed into the same score fusion engine used by the Python backend — now featuring **corroboration requirements** (multiple independent categories must agree), **lone-wolf penalty** (single high-scoring check with all others clean gets probability reduced), and **confidence-qualified explanations**.
 
@@ -315,7 +329,7 @@ I  B  B  P  B  B  P  B  B  P  B  B  I  ...
 
 ---
 
-### The 15 quevidkit Forensic Checks
+### The 19 quevidkit Forensic Checks
 
 #### Standard Checks (all presets)
 
@@ -341,13 +355,17 @@ I  B  B  P  B  B  P  B  B  P  B  B  I  ...
 | 13 | **Thumbnail Mismatch** | Edits that update content but leave the original embedded thumbnail |
 | 14 | **A/V Sync Drift** | Audio-video timing jumps and progressive drift at splice points |
 | 15 | **Bitrate Distribution** | Merged encoding profiles detected via bimodality coefficient |
+| 16 | **Sensor Noise Correlation** | Splicing from a different camera/sensor via noise-residue cross-correlation across temporal windows |
+| 17 | **Frequency Artifact Scan** | AI/GAN-generation indicator via 2D-FFT periodicity, with optional face-region flicker signal |
+| 18 | **Provenance Manifest** | C2PA/JUMBF content-credential and XMP metadata presence (a positive signal, not a negative one) |
+| 19 | **Container Edit Trace** | Editor-left structural traces in the raw ISO-BMFF box layout |
 
 ---
 
 ### How Scores Become Verdicts
 
 ```
-15 checks  ->  Confidence-weighted mean  ->  Logistic function  ->  Label
+19 checks  ->  Confidence-weighted mean  ->  Logistic function  ->  Label
                                                |
                                probability = 1 / (1 + e^(-logit))
                                logit = bias + (score * 5.2) + (gate * 0.4) + (corr * 1.0)

@@ -3,10 +3,22 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#08111f">
+  <meta name="theme-color" content="#0a0f16" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#eef1f5" media="(prefers-color-scheme: light)">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="description" content="Forensic video tampering detection – runs entirely on your device, no server required.">
+  <meta name="description" content="Forensic video tampering detection — runs entirely on your device, no server required.">
+  <meta property="og:title" content="quevidkit — Video Forensics Lab">
+  <meta property="og:description" content="19 forensic checks, evidence-backed probability, not legal certainty. Runs entirely on your device — no server required.">
+  <meta property="og:image" content="https://thumpersecure.github.io/quevidkit/assets/social-preview.gif">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://thumpersecure.github.io/quevidkit/">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="quevidkit — Video Forensics Lab">
+  <meta name="twitter:description" content="19 forensic checks, evidence-backed probability, not legal certainty.">
+  <meta name="twitter:image" content="https://thumpersecure.github.io/quevidkit/assets/social-preview.gif">
+  <link rel="alternate" type="text/plain" href="./llms.txt" title="LLM-readable site description">
+  <link rel="sitemap" type="application/xml" href="./sitemap.xml">
   <title>Video Forensics Lab · quevidkit</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
@@ -15,64 +27,107 @@
 
     <!-- ── Hero ─────────────────────────────────────────────────── -->
     <section class="card hero-card">
-      <p class="eyebrow">quevidkit v0.3.0 · Tampering Detection</p>
-      <h1>Video Forensics Lab</h1>
+      <svg class="hero-trace" viewBox="0 0 320 74" aria-hidden="true">
+        <path d="M0 40 L44 40 L52 22 L60 58 L68 40 L96 40 L104 30 L112 48 L120 40 L176 40 L184 14 L192 62 L200 40 L232 40 L240 34 L248 44 L256 40 L320 40"/>
+      </svg>
+      <p class="eyebrow"><span class="dot"></span>quevidkit v1.0.0 · Tampering detection</p>
+      <h1>Video Forensics <span class="accent">Lab</span></h1>
       <p class="muted lead">
-        Upload a video to check for signs of editing or tampering.
-        15 forensic checks with corroboration analysis and false-positive reduction.
-        Client mode runs directly on your device — no uploads, no server required.
+        Check any video for signs of editing or tampering. A suite of forensic
+        checks with corroboration analysis and false-positive reduction —
+        client mode runs entirely on your device, so nothing leaves your phone.
       </p>
+
+      <div class="trust-strip">
+        <span class="trust-chip">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          No upload in client mode
+        </span>
+        <span class="trust-chip">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z"/></svg>
+          Runs offline
+        </span>
+        <span class="trust-chip">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          Open source
+        </span>
+      </div>
 
       <div class="mode-cards">
         <div class="mode-card">
-          <div class="mode-icon">1</div>
+          <div class="mode-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2.5"/><path d="M11 18h2"/></svg>
+          </div>
           <div>
-            <strong>Client-Only</strong>
+            <strong>Client-only</strong>
             <span>Full analysis on-device. Parses the MP4 container, inspects timing, GOP structure, and frame quality — zero network traffic.</span>
           </div>
         </div>
         <div class="mode-card">
-          <div class="mode-icon">2</div>
+          <div class="mode-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="8" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><path d="M7 8h.01M7 17h.01"/></svg>
+          </div>
           <div>
-            <strong>Server Deep Scan</strong>
-            <span>Sends video to a quevidkit server for 15 forensic checks including ffprobe, OpenCV, ELA, noise analysis, and more.</span>
+            <strong>Server deep scan</strong>
+            <span>Sends video to a quevidkit server for the full forensic suite: ffprobe, OpenCV, ELA, noise analysis, and more.</span>
           </div>
         </div>
         <div class="mode-card">
-          <div class="mode-icon">3</div>
+          <div class="mode-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 0 1 8-8"/><path d="M20 12a8 8 0 0 1-8 8"/><path d="M12 4l3 3-3 3M12 20l-3-3 3-3"/></svg>
+          </div>
           <div>
             <strong>Hybrid</strong>
-            <span>Client analysis first, then enhances results with server checks when available.</span>
+            <span>Client analysis first, then enhances the results with server checks when a backend is available.</span>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- ── Analysis Form ────────────────────────────────────────── -->
+    <!-- ── Analysis form ────────────────────────────────────────── -->
     <section class="card">
       <form id="analyze-form">
         <label class="field">
           <span>Video file</span>
-          <input id="video-file" type="file" accept="video/*" required>
-          <small class="muted">MP4, MOV, MKV, AVI, WebM, or 3GP. Works best with MP4/MOV for deep container analysis.</small>
+          <div class="dropzone" id="dropzone">
+            <div class="dropzone-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5-5 5 5"/><path d="M12 5v13"/></svg>
+            </div>
+            <div class="dropzone-text">
+              <div class="dropzone-title" id="dropzone-title">Choose a video or tap to browse</div>
+              <div class="dropzone-file hidden" id="dropzone-file"></div>
+              <div class="dropzone-hint">MP4 or MOV work best for deep container analysis · MKV, AVI, WebM, 3GP supported</div>
+            </div>
+            <input id="video-file" type="file" accept="video/*" required>
+          </div>
+          <button type="button" id="demo-btn" class="demo-link">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 3 14 9-14 9V3z"/></svg>
+            Try a demo video
+          </button>
         </label>
 
         <label class="field">
           <span>Analysis mode</span>
           <select id="mode-select">
-            <option value="client" selected>Client-Only (no server needed)</option>
+            <option value="client" selected>Client-only (no server needed)</option>
             <option value="hybrid">Hybrid (client + server)</option>
-            <option value="remote">Server Deep Scan</option>
+            <option value="remote">Server deep scan</option>
           </select>
         </label>
 
-        <button id="analyze-btn" type="submit">Analyze Video</button>
+        <button id="analyze-btn" type="submit" class="btn-primary">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          Analyze video
+        </button>
 
         <div id="error-box" class="error hidden"></div>
 
-        <!-- Server connection (shown for hybrid/remote) -->
+        <!-- Server connection (used for hybrid / remote) -->
         <details class="advanced" id="server-panel">
-          <summary>Server connection</summary>
+          <summary>
+            <svg class="summary-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="8" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><path d="M7 8h.01M7 17h.01"/></svg>
+            Server connection
+          </summary>
           <div class="adv-body">
             <label class="field">
               <span>Server URL</span>
@@ -80,7 +135,7 @@
               <small class="muted">Address of a running quevidkit server. Only needed for Server or Hybrid modes.</small>
             </label>
             <div class="inline-row">
-              <button id="test-server-btn" type="button" class="secondary">Test Connection</button>
+              <button id="test-server-btn" type="button" class="secondary">Test connection</button>
               <span id="server-status" class="status-pill">Not connected</span>
             </div>
           </div>
@@ -88,7 +143,10 @@
 
         <!-- Analysis settings -->
         <details class="advanced">
-          <summary>Analysis settings</summary>
+          <summary>
+            <svg class="summary-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2v4M12 18v4M4.9 4.9l2.9 2.9M16.2 16.2l2.9 2.9M2 12h4M18 12h4M4.9 19.1l2.9-2.9M16.2 7.8l2.9-2.9"/><circle cx="12" cy="12" r="3"/></svg>
+            Analysis settings
+          </summary>
           <div class="adv-body settings-grid">
             <label class="field full-width">
               <span>Preset</span>
@@ -97,7 +155,7 @@
                 <option value="balanced" selected>Balanced</option>
                 <option value="deep">Deep</option>
               </select>
-              <small class="muted">Controls accuracy vs speed. Deep scans more frames with higher sensitivity.</small>
+              <small class="muted">Controls accuracy vs. speed. Deep scans more frames with higher sensitivity.</small>
             </label>
             <label class="field">
               <span>Sample interval (s)</span>
@@ -117,50 +175,48 @@
     </section>
 
     <!-- ── Progress ─────────────────────────────────────────────── -->
-    <section id="progress-card" class="card hidden">
-      <h2>Analyzing...</h2>
-      <p id="progress-phase" class="eyebrow small"></p>
-      <p id="progress-text">Preparing...</p>
+    <section id="progress-card" class="card hidden" aria-live="polite">
+      <div class="progress-head">
+        <div>
+          <p id="progress-phase" class="eyebrow small"></p>
+          <h2 id="progress-heading" style="margin:0">Analyzing</h2>
+        </div>
+        <span id="progress-pct" class="progress-pct">0%</span>
+      </div>
+      <p id="progress-text" class="muted" style="margin:6px 0 12px">Preparing…</p>
       <div class="progress-track"><div id="progress-bar" class="progress-bar"></div></div>
 
-      <div id="check-list" class="check-list">
-        <div class="check-status pending" data-check="container">
-          <span class="check-icon">&bull;</span>
-          Container &amp; Metadata
-        </div>
-        <div class="check-status pending" data-check="timing">
-          <span class="check-icon">&bull;</span>
-          Sample Timing
-        </div>
-        <div class="check-status pending" data-check="structure">
-          <span class="check-icon">&bull;</span>
-          Frame Structure
-        </div>
-        <div class="check-status pending" data-check="audio">
-          <span class="check-icon">&bull;</span>
-          Audio Consistency
-        </div>
-        <div class="check-status pending" data-check="visual">
-          <span class="check-icon">&bull;</span>
-          Visual Frame Analysis
-        </div>
-      </div>
+      <!-- Rendered from JS (STAGES in ui.js) so any number of checks display -->
+      <div id="check-list" class="check-list"></div>
     </section>
 
     <!-- ── Results ──────────────────────────────────────────────── -->
     <section id="result-card" class="card hidden">
-      <h2>Forensic Report</h2>
-      <p><strong>Mode:</strong> <span id="result-mode"></span></p>
+      <p class="eyebrow small"><span class="dot"></span>Forensic report</p>
+      <p class="result-meta">Analysis mode: <span id="result-mode" class="mode-tag"></span></p>
 
-      <div class="verdict-wrap">
-        <span id="result-label" class="verdict-badge">INCONCLUSIVE</span>
-        <p id="result-meaning" class="muted"></p>
+      <div class="verdict-stage">
+        <div class="gauge" role="img" aria-labelledby="result-label result-probability">
+          <svg viewBox="0 0 120 120" aria-hidden="true">
+            <circle class="gauge-track" cx="60" cy="60" r="52"></circle>
+            <circle id="gauge-fill" class="gauge-fill" cx="60" cy="60" r="52"
+                    stroke-dasharray="326.7" stroke-dashoffset="326.7"></circle>
+          </svg>
+          <div class="gauge-center">
+            <span id="result-probability" class="gauge-value">—</span>
+            <span class="gauge-label">Tamper prob.</span>
+          </div>
+        </div>
+        <div class="verdict-readout">
+          <span id="result-label" class="verdict-badge">INCONCLUSIVE</span>
+          <p id="result-meaning" class="verdict-meaning"></p>
+        </div>
       </div>
 
       <div class="metric-grid">
         <div class="metric-card">
-          <p>Tamper Probability</p>
-          <h3 id="result-probability"></h3>
+          <p>Tamper probability</p>
+          <h3 id="result-probability-2"></h3>
         </div>
         <div class="metric-card">
           <p>Confidence</p>
@@ -172,42 +228,50 @@
         </div>
       </div>
 
-      <div class="meter-track"><div id="result-meter" class="meter-fill"></div></div>
-
       <p class="sha-line"><strong>SHA-256:</strong> <code id="result-sha"></code></p>
 
-      <h3>Why this decision was made</h3>
+      <p class="section-eyebrow">Why this decision was made</p>
       <ul id="result-explanation"></ul>
 
-      <h3>Evidence by check</h3>
+      <p class="section-eyebrow">Evidence by check</p>
+      <div class="swipe-hint" id="swipe-hint">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        Swipe to see all checks
+      </div>
       <div id="result-checks" class="check-bars"></div>
 
-      <h3>Suspicious segments</h3>
+      <p class="section-eyebrow">Suspicious segments</p>
       <div id="result-timeline" class="timeline-track"></div>
       <ul id="result-segments"></ul>
 
-      <button id="download-btn" type="button">Download Report (HTML)</button>
+      <button id="download-btn" type="button" class="btn-primary" style="margin-top:20px">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>
+        Download report (HTML)
+      </button>
 
-      <details class="advanced">
-        <summary>Raw data</summary>
+      <details class="advanced" style="margin-top:16px">
+        <summary>
+          <svg class="summary-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 16 4-4-4-4M6 8l-4 4 4 4M14.5 4l-5 16"/></svg>
+          Raw data
+        </summary>
         <pre id="result-raw"></pre>
       </details>
     </section>
 
     <!-- ── Footer ───────────────────────────────────────────────── -->
     <footer class="footer">
-      <p class="muted">quevidkit v0.3.0 &mdash; 15 forensic checks with corroboration-based scoring.
+      <p class="disclaimer muted">quevidkit v1.0.0 — forensic checks with corroboration-based scoring.
         Results are evidence-based probability estimates, not legal certainty.</p>
       <p class="footer-links">
         <a href="https://github.com/thumpersecure/quevidkit" target="_blank" rel="noopener">GitHub</a>
-        <span class="footer-sep">&middot;</span>
+        <span class="footer-sep">·</span>
         <a href="https://github.com/thumpersecure/quevidkit/blob/main/quesciences.pdf" target="_blank" rel="noopener">The Science (PDF)</a>
-        <span class="footer-sep">&middot;</span>
+        <span class="footer-sep">·</span>
         <a href="https://github.com/thumpersecure/quevidkit/blob/main/que-science.md" target="_blank" rel="noopener">The Science (Markdown)</a>
       </p>
       <div class="ts-brand-footer">
         <a href="https://github.com/thumpersecure" target="_blank" rel="noopener" class="ts-brand-link">
-          <svg class="ts-gh-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+          <svg class="ts-gh-icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
           <span class="ts-brand-name">thumpersecure</span>
         </a>
       </div>

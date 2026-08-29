@@ -490,3 +490,43 @@ export async function computeSHA256(buffer) {
     .map(b => b.toString(16).padStart(2, '0'))
     .join('');
 }
+
+/**
+ * Scan raw file bytes for content-provenance signatures (C2PA/JUMBF, XMP).
+ *
+ * Reads only a bounded prefix of the ArrayBuffer to stay memory-efficient on
+ * large files (mirrors this module's "release ArrayBuffer after parsing"
+ * principle) — provenance boxes/blocks are conventionally located near the
+ * start of the file (top-level 'uuid'/'jumb' boxes or an early XMP packet),
+ * so scanning the first N bytes is sufficient in the overwhelming majority
+ * of real-world files without reading the whole (potentially huge) buffer.
+ */
+export function scanProvenanceSignatures(buffer, maxScanBytes = 32 * 1024 * 1024) {
+  const scanLen = Math.min(buffer.byteLength, maxScanBytes);
+  const bytes = new Uint8Array(buffer, 0, scanLen);
+
+  // Decode in chunks to a Latin1-ish string so ASCII byte sequences can be
+  // located with indexOf without pulling in a text-decoding dependency.
+  const CHUNK = 65536;
+  let ascii = '';
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    const slice = bytes.subarray(i, Math.min(bytes.length, i + CHUNK));
+    ascii += String.fromCharCode.apply(null, slice);
+  }
+
+  const hasJumb = ascii.indexOf('jumb') !== -1;
+  const hasC2pa = ascii.indexOf('c2pa') !== -1;
+  const hasXmpPacket = ascii.indexOf('<?xpacket') !== -1;
+  const hasXmpNamespace = ascii.indexOf('http://ns.adobe.com/xap/') !== -1;
+
+  return {
+    scannedBytes: scanLen,
+    truncated: scanLen < buffer.byteLength,
+    hasJumb,
+    hasC2pa,
+    hasXmpPacket,
+    hasXmpNamespace,
+    hasC2paManifest: hasJumb || hasC2pa,
+    hasXmp: hasXmpPacket || hasXmpNamespace,
+  };
+}

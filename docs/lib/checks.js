@@ -7,11 +7,14 @@
  *   3. structureCheck          – replaces frame_structure_checks (ffprobe)
  *   4. visualFrameCheck        – replaces opencv_frame_quality_checks
  *   5. audioConsistencyCheck   – new: cross-track duration/codec checks
+ *   6. provenanceManifestCheck – new: C2PA/JUMBF + XMP signature scan
+ *   7. containerEditTraceCheck – new: free/skip/uuid box + layout anomaly scan
  *
  * All checks return { name, category, score, confidence, summary, details, segments }.
  */
 
 import { clamp01 } from './scoring.js';
+import { scanProvenanceSignatures } from './mp4-parser.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -740,4 +743,218 @@ export function audioConsistencyCheck(parsed) {
     details,
     segments: [],
   };
+}
+
+// ── 6. Provenance Manifest Check (C2PA/JUMBF + XMP) ──────────────────────────
+
+/**
+ * Scans the raw file bytes for content-provenance signatures:
+ *   - C2PA/JUMBF ('jumb'/'c2pa' byte sequences) — a cryptographically-signed
+ *     provenance manifest embedding capture/edit history. Presence is a mild
+ *     AUTHENTICITY signal (produces a LOW tamper score), never a suspicion
+ *     signal — its absence is common and NOT itself evidence of tampering,
+ *     since most cameras/editors don't embed C2PA today.
+ *   - XMP metadata ('<?xpacket' / the Adobe XMP namespace) — informational
+ *     editing metadata. Presence alone (without C2PA) is neutral; combined
+ *     with recognized editor markers it is simply noted, not flagged as
+ *     suspicious, since normal editing workflows commonly write XMP.
+ *
+ * This check never raises the tamper score for absence of provenance data —
+ * only presence of C2PA lowers it slightly, consistent with the project's
+ * "evidence-backed probability, not legal certainty" epistemic stance.
+ */
+export function provenanceManifestCheck(buffer) {
+  const details = {};
+  try {
+    if (!buffer || !(buffer.byteLength >= 0)) {
+      return {
+        name: 'provenance_manifest',
+        category: 'metadata',
+        score: 0,
+        confidence: 0.05,
+        summary: 'No file buffer available for provenance scan.',
+        details: {},
+        segments: [],
+      };
+    }
+
+    const sig = scanProvenanceSignatures(buffer);
+    details.scannedBytes = sig.scannedBytes;
+    details.scanTruncated = sig.truncated;
+    details.hasC2paOrJumbf = sig.hasC2paManifest;
+    details.hasXmp = sig.hasXmp;
+
+    let score, summary;
+    if (sig.hasC2paManifest) {
+      score = 0.03;
+      summary = 'C2PA/JUMBF content-provenance manifest signature detected — ' +
+        'a mild authenticity signal (the file carries a structured provenance ' +
+        'record). This does not by itself prove the manifest is valid or ' +
+        'unmodified; it is a corroborating signal only, not a guarantee.';
+      details.interpretation = 'authenticity_signal';
+    } else if (sig.hasXmp) {
+      score = 0.05;
+      summary = 'XMP metadata block detected, but no C2PA/JUMBF provenance ' +
+        'manifest. XMP alone is informational (commonly written by editing ' +
+        'and asset-management software) and is not evidence of tampering.';
+      details.interpretation = 'informational_only';
+    } else {
+      score = 0.02;
+      summary = 'No C2PA/JUMBF or XMP provenance signatures found. This is ' +
+        'common — most cameras and editors do not embed provenance data — ' +
+        'and is NOT itself evidence of tampering.';
+      details.interpretation = 'absence_is_neutral';
+    }
+
+    return {
+      name: 'provenance_manifest',
+      category: 'metadata',
+      score: clamp01(score),
+      confidence: sig.truncated ? 0.5 : 0.6,
+      summary,
+      details,
+      segments: [],
+    };
+  } catch (e) {
+    return {
+      name: 'provenance_manifest',
+      category: 'metadata',
+      score: 0,
+      confidence: 0.05,
+      summary: `Provenance scan failed: ${e.message}`,
+      details: {},
+      segments: [],
+    };
+  }
+}
+
+// ── 7. Container Edit-Trace Check (free/skip/uuid + layout anomalies) ───────
+
+/**
+ * Walks the top-level box layout (reusing mp4-parser.js's already-parsed
+ * box tree — no re-walking of the binary) looking for structural traces
+ * consistent with in-place editing or re-muxing:
+ *   - duplicate/oversized 'free' or 'skip' boxes (padding left behind when
+ *     an editor rewrites a box in place without recompacting the file)
+ *   - 'uuid' boxes (vendor/editor private-extension data; common but worth
+ *     surfacing since they carry editor-specific payloads)
+ *   - unusual top-level box count/ordering relative to a typical single-pass
+ *     export (ftyp, moov, mdat [, free])
+ *
+ * This is distinct from containerMetadataCheck's free/skip counting (which
+ * only flags >=3 free/skip boxes as a coarse signal): this check inspects
+ * free/skip *sizes* for oversized padding, flags uuid boxes specifically
+ * with their identifiers, and scores overall layout-order anomalies.
+ */
+export function containerEditTraceCheck(parsed) {
+  const details = {};
+  const findings = [];
+
+  try {
+    const layout = parsed?.layout || [];
+    if (!layout.length) {
+      return {
+        name: 'container_edit_trace',
+        category: 'metadata',
+        score: 0,
+        confidence: 0.05,
+        summary: 'No container box layout available for edit-trace analysis.',
+        details: {},
+        segments: [],
+      };
+    }
+
+    const types = layout.map(b => b.type);
+    details.topLevelBoxCount = layout.length;
+    details.topLevelBoxOrder = types;
+
+    // free/skip: count + total padding size (oversized padding suggests
+    // in-place rewriting without recompaction).
+    const freeSkipBoxes = layout.filter(b => b.type === 'free' || b.type === 'skip');
+    const freeSkipTotalBytes = freeSkipBoxes.reduce((s, b) => s + (b.size || 0), 0);
+    details.freeSkipBoxCount = freeSkipBoxes.length;
+    details.freeSkipTotalBytes = freeSkipTotalBytes;
+    if (freeSkipBoxes.length >= 2) {
+      const avgSize = freeSkipTotalBytes / freeSkipBoxes.length;
+      if (avgSize > 4096 || freeSkipBoxes.length >= 4) {
+        findings.push([
+          `${freeSkipBoxes.length} free/skip box(es) totaling ${freeSkipTotalBytes} bytes ` +
+          `(oversized padding consistent with in-place editing)`,
+          clamp01(0.15 + freeSkipBoxes.length * 0.05 + Math.min(0.3, avgSize / 100000)),
+        ]);
+      }
+    }
+
+    // uuid boxes: vendor/editor extension data. Not inherently suspicious,
+    // but worth surfacing explicitly (this check's main addition beyond
+    // containerMetadataCheck).
+    const uuidBoxes = layout.filter(b => b.type === 'uuid');
+    details.uuidBoxCount = uuidBoxes.length;
+    if (uuidBoxes.length > 0) {
+      details.uuidBoxOffsets = uuidBoxes.map(b => b.offset);
+      findings.push([
+        `${uuidBoxes.length} 'uuid' extension box(es) present (vendor/editor ` +
+        `private data — common in edited or platform-processed files)`,
+        clamp01(0.08 + uuidBoxes.length * 0.03),
+      ]);
+    }
+
+    // Box-count / ordering anomaly relative to a typical single-pass export
+    // (ftyp, moov, mdat, optionally one free). Many boxes, boxes repeated
+    // out of the conventional order, or mdat appearing before ftyp are all
+    // mildly unusual.
+    const ftypIdx = types.indexOf('ftyp');
+    const moovIdx = types.indexOf('moov');
+    const mdatIdx = types.indexOf('mdat');
+    details.ftypIndex = ftypIdx;
+    details.moovIndex = moovIdx;
+    details.mdatIndex = mdatIdx;
+
+    if (ftypIdx > 0) {
+      findings.push(['ftyp is not the first top-level box (unusual for a standard export)', 0.15]);
+    }
+    if (types.length > 8) {
+      findings.push([
+        `unusually high top-level box count (${types.length}) for a single-pass export`,
+        clamp01(0.1 + (types.length - 8) * 0.03),
+      ]);
+    }
+    const moovCount = types.filter(t => t === 'moov').length;
+    const ftypCount = types.filter(t => t === 'ftyp').length;
+    if (moovCount > 1 || ftypCount > 1) {
+      findings.push([`duplicate top-level box(es) found (moov x${moovCount}, ftyp x${ftypCount})`, 0.3]);
+    }
+
+    let score, summary;
+    if (!findings.length) {
+      score = 0.04;
+      summary = 'No unusual free/skip padding, uuid boxes, or layout anomalies at the container level.';
+    } else {
+      score = clamp01(findings.reduce((s, [, w]) => s + w, 0) / findings.length);
+      summary = findings.map(([m]) => m).join('; ');
+    }
+
+    let confidence = 0.7;
+    if (types.length < 3) confidence -= 0.3;
+
+    return {
+      name: 'container_edit_trace',
+      category: 'metadata',
+      score,
+      confidence: clamp01(confidence),
+      summary,
+      details: { ...details, findings: findings.map(([m, w]) => ({ finding: m, severity: w })) },
+      segments: [],
+    };
+  } catch (e) {
+    return {
+      name: 'container_edit_trace',
+      category: 'metadata',
+      score: 0,
+      confidence: 0.05,
+      summary: `Edit-trace scan failed: ${e.message}`,
+      details: {},
+      segments: [],
+    };
+  }
 }

@@ -35,7 +35,6 @@ export const dom = {
   get resultConf() { return $('result-confidence'); },
   get resultDuration() { return $('result-duration'); },
   get resultSHA() { return $('result-sha'); },
-  get resultMeter() { return $('result-meter'); },
   get resultMode() { return $('result-mode'); },
   get resultExplanation() { return $('result-explanation'); },
   get resultChecks() { return $('result-checks'); },
@@ -53,14 +52,63 @@ export const dom = {
   get testServerBtn() { return $('test-server-btn'); },
   get errorBox() { return $('error-box'); },
   get checkList() { return $('check-list'); },
+  get progressPct() { return $('progress-pct'); },
+  get gaugeFill() { return $('gauge-fill'); },
 };
+
+// ── Progress-stage definitions ────────────────────────────────────────────────
+// The per-check progress list is rendered from this array (never hardcoded in
+// HTML) so the panel stays correct as checks are added or removed. Each stage's
+// `id` matches the name passed to setCheckStatus() from the analysis pipeline.
+export const STAGES = [
+  { id: 'container',   label: 'Container & metadata' },
+  { id: 'timing',      label: 'Sample timing' },
+  { id: 'structure',   label: 'Frame structure' },
+  { id: 'audio',       label: 'Audio consistency' },
+  { id: 'provenance',  label: 'Provenance manifest' },
+  { id: 'edittrace',   label: 'Container edit-trace' },
+  { id: 'visual',      label: 'Visual frame analysis' },
+];
+
+/** Build the progress check-list from STAGES. Safe: labels are our own strings. */
+export function renderCheckList(stages = STAGES) {
+  const host = dom.checkList;
+  if (!host) return;
+  host.innerHTML = '';
+  for (const s of stages) {
+    const row = document.createElement('div');
+    row.className = 'check-status pending';
+    row.setAttribute('data-check', s.id);
+
+    const icon = document.createElement('span');
+    icon.className = 'check-icon';
+    icon.textContent = '•';
+
+    const name = document.createElement('span');
+    name.className = 'check-name';
+    name.textContent = s.label;
+
+    const skel = document.createElement('span');
+    skel.className = 'check-bar-skel';
+
+    row.appendChild(icon);
+    row.appendChild(name);
+    row.appendChild(skel);
+    host.appendChild(row);
+  }
+}
 
 // ── Progress ─────────────────────────────────────────────────────────────────
 
 export function showProgress(pct, text, phase) {
-  dom.progressCard.classList.remove('hidden');
+  const clamped = Math.max(0, Math.min(100, pct));
+  if (dom.progressCard.classList.contains('hidden')) {
+    dom.progressCard.classList.remove('hidden');
+    dom.progressCard.classList.add('reveal');
+  }
   dom.resultCard.classList.add('hidden');
-  dom.progressBar.style.width = `${Math.max(0, Math.min(100, pct))}%`;
+  dom.progressBar.style.width = `${clamped}%`;
+  if (dom.progressPct) dom.progressPct.textContent = `${Math.round(clamped)}%`;
   dom.progressText.textContent = text || '';
   if (phase && dom.progressPhase) dom.progressPhase.textContent = phase;
 }
@@ -136,11 +184,12 @@ export function hideError() {
 
 export function setCheckStatus(name, status) {
   const el = document.querySelector(`[data-check="${name}"]`);
-  if (!el) return;
+  if (!el) return; // unknown stage: no-op, keeps the panel forgiving as checks change
   el.className = `check-status ${status}`;
   const icon = el.querySelector('.check-icon');
   if (icon) {
-    if (status === 'running') icon.textContent = '...';
+    // The running spinner is drawn in CSS, so leave the glyph empty while running.
+    if (status === 'running') icon.textContent = '';
     else if (status === 'done') icon.textContent = '\u2713';
     else if (status === 'error') icon.textContent = '\u2717';
     else icon.textContent = '\u2022';
@@ -148,6 +197,16 @@ export function setCheckStatus(name, status) {
 }
 
 // ── Result rendering ─────────────────────────────────────────────────────────
+
+// Inline verdict icons (our own markup — not from untrusted data).
+const VERDICT_ICON = {
+  authentic:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+  tampered:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>',
+  suspicious:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>',
+  inconclusive:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 0 1 4.5 1.5c0 1.5-2 2-2 3M12 17h.01"/></svg>',
+};
+
+const GAUGE_CIRCUMFERENCE = 2 * Math.PI * 52; // r=52 in the SVG
 
 function plainMeaning(label, prob, conf) {
   const pPct = (prob * 100).toFixed(1);
@@ -161,33 +220,76 @@ function plainMeaning(label, prob, conf) {
   return 'Could not assess with sufficient confidence. Try a deeper scan.';
 }
 
+// One-line plain-English description per check. Kept generous so any check the
+// backend emits — including checks added later — renders with real context
+// rather than a bare fallback. Unknown names still degrade gracefully.
 function checkDescription(name) {
   const map = {
     container_metadata: 'Compares container and stream metadata for consistency, editing markers, and structural anomalies.',
+    metadata_codec_consistency: 'Compares container metadata against stream data for durations, bitrates, and format tags.',
     sample_timing: 'Checks frame timing continuity from the sample table for jumps and irregularities.',
+    packet_timing_anomalies: 'Inspects packet timestamps for gaps or non-monotonic sequences at possible splice points.',
     frame_structure: 'Inspects GOP patterns, keyframe regularity, and sample size distribution.',
+    frame_structure_anomalies: 'Analyzes GOP regularity, resolution consistency, and color-profile stability.',
     visual_frame_analysis: 'Measures visual quality shifts, duplicate frames, and luminance histogram breaks.',
+    frame_quality_shift: 'Measures frame-to-frame quality changes: blur, blockiness, and duplicate or missing frames.',
     audio_consistency: 'Verifies audio/video duration match and audio codec consistency.',
+    browser_temporal_continuity: 'Analyzes frame-to-frame pixel continuity for abrupt visual breaks.',
+    compression_consistency: 'Compares packet-size distributions across the timeline per frame type.',
+    scene_cut_forensics: 'Correlates scene transitions with the natural keyframe cadence.',
+    audio_spectral_continuity: 'Detects abrupt audio spectral breaks between recording environments.',
+    temporal_noise_consistency: 'Measures per-frame noise to detect source changes across the timeline.',
+    double_compression_detection: 'Detects re-encoding over previously compressed video via I-frame periodicity.',
+    ela_frame_analysis: 'Error-level analysis: re-compresses frames and measures residual differences.',
+    bitstream_structure: 'Checks for mid-stream codec parameter changes across the bitstream.',
+    qp_consistency: 'Analyzes GOP frame-type patterns for consistency across the timeline.',
+    thumbnail_mismatch: 'Compares the embedded thumbnail against the actual first frame.',
+    av_sync_drift: 'Measures audio-video timing offset at checkpoints across the timeline.',
+    bitrate_distribution: 'Tests whether packet sizes form one distribution (single source) or two (merged sources).',
+    provenance_manifest: 'Verifies C2PA / Content Credentials provenance manifests and signatures.',
+    c2pa_manifest: 'Verifies C2PA / Content Credentials provenance manifests and signatures.',
+    container_edit_trace: 'Looks for container-level edit traces left by editing and re-muxing tools.',
+    edit_trace: 'Looks for container-level edit traces left by editing and re-muxing tools.',
   };
-  return map[name] || 'Contributes to overall forensic risk scoring.';
+  return map[name] || 'Contributes to the overall forensic risk score.';
 }
 
 export function renderResult(report) {
+  dom.progressCard.classList.add('hidden');
   dom.resultCard.classList.remove('hidden');
+  dom.resultCard.classList.remove('reveal');
+  // reflow so the reveal animation replays on each new result
+  void dom.resultCard.offsetWidth;
+  dom.resultCard.classList.add('reveal');
 
   const label = report.label || 'inconclusive';
   const prob = report.tamper_probability || 0;
   const conf = report.confidence || 0;
   const color = verdictColor(label);
+  const probPct = `${(prob * 100).toFixed(1)}%`;
 
-  dom.resultLabel.textContent = label.toUpperCase();
+  // Verdict badge: icon (safe, our markup) + label (safe, our textContent).
+  dom.resultLabel.innerHTML = VERDICT_ICON[label] || VERDICT_ICON.inconclusive;
+  dom.resultLabel.appendChild(document.createTextNode(label.toUpperCase()));
   dom.resultLabel.style.background = color;
   dom.resultMeaning.textContent = plainMeaning(label, prob, conf);
-  dom.resultProb.textContent = `${(prob * 100).toFixed(1)}%`;
+
+  // Radial gauge: fill the arc to the tamper probability, tint to verdict color.
+  if (dom.resultProb) dom.resultProb.textContent = `${(prob * 100).toFixed(0)}%`;
+  if (dom.gaugeFill) {
+    dom.gaugeFill.style.stroke = color;
+    // start from empty, then animate to target on the next frame
+    dom.gaugeFill.style.strokeDashoffset = GAUGE_CIRCUMFERENCE;
+    requestAnimationFrame(() => {
+      dom.gaugeFill.style.strokeDashoffset = GAUGE_CIRCUMFERENCE * (1 - Math.max(0, Math.min(1, prob)));
+    });
+  }
+
+  const probCard = document.getElementById('result-probability-2');
+  if (probCard) probCard.textContent = probPct;
   dom.resultConf.textContent = `${(conf * 100).toFixed(1)}%`;
   dom.resultDuration.textContent = `${(report.duration_s || 0).toFixed(2)}s`;
   if (dom.resultSHA) dom.resultSHA.textContent = report.sha256 || '—';
-  dom.resultMeter.style.width = `${(prob * 100).toFixed(1)}%`;
 
   const modeLabels = {
     client: 'Full client-side analysis (no server)',
@@ -219,10 +321,14 @@ export function renderResult(report) {
 
 function renderCheckBars(checks) {
   dom.resultChecks.innerHTML = '';
+  const hint = document.getElementById('swipe-hint');
   if (!checks.length) {
     dom.resultChecks.innerHTML = '<p class="muted">No check data available.</p>';
+    if (hint) hint.style.display = 'none';
     return;
   }
+  // Only offer the swipe affordance when there's actually more than one card.
+  if (hint) hint.style.removeProperty('display');
   for (const c of checks) {
     const s = Math.max(0, Math.min(100, (c.score || 0) * 100));
     const cn = Math.max(0, Math.min(100, (c.confidence || 0) * 100));

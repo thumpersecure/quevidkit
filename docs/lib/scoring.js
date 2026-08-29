@@ -197,6 +197,16 @@ const CHECK_CONTEXT = {
     tampered: 'Splicing content from two quality levels creates a bimodal distribution.',
     benign: 'Highly variable content and VBR encoding can produce wide distributions.',
   },
+  provenance_manifest: {
+    what: 'Scans raw file bytes for C2PA/JUMBF content-provenance manifests and XMP metadata blocks.',
+    tampered: 'A missing or invalid provenance manifest is common and NOT itself evidence of tampering — absence is the default state for most video.',
+    benign: 'A valid C2PA/JUMBF manifest is a mild authenticity signal; XMP alone is informational and routinely written by editing software.',
+  },
+  container_edit_trace: {
+    what: 'Walks the top-level box layout for oversized free/skip padding, uuid extension boxes, and box-count/ordering anomalies.',
+    tampered: 'Oversized free/skip padding and duplicated top-level boxes can indicate in-place editing or re-muxing without full recompaction.',
+    benign: 'uuid boxes and modest free/skip padding are routinely written by cameras, editors, and platform re-encoders.',
+  },
 };
 
 function confidenceQualifier(confidence) {
@@ -318,6 +328,8 @@ export function humanizeCheckName(name) {
     thumbnail_mismatch: 'Thumbnail Mismatch',
     av_sync_drift: 'A/V Sync Drift',
     bitrate_distribution: 'Bitrate Distribution',
+    provenance_manifest: 'Provenance Manifest (C2PA/XMP)',
+    container_edit_trace: 'Container Edit Trace',
   };
   return map[name] || name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }

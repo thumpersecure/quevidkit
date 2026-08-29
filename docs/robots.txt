@@ -1,0 +1,43 @@
+# robots.txt for quevidkit (thumpersecure.github.io/quevidkit/)
+# Open-source forensic video-tampering toolkit. Site owner explicitly
+# permits all crawlers including AI systems.
+
+User-agent: *
+Allow: /
+
+# AI crawlers — explicitly permitted
+User-agent: GPTBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: anthropic-ai
+Allow: /
+
+User-agent: Applebot-Extended
+Allow: /
+
+User-agent: CCBot
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Bytespider
+Allow: /
+
+User-agent: cohere-ai
+Allow: /
+
+Sitemap: https://thumpersecure.github.io/quevidkit/sitemap.xml
+
+# AI / machine-readable discovery (documented as a comment — not a standard
+# robots.txt directive, so it is commented out to avoid parser warnings):
+#   LLM summary: https://thumpersecure.github.io/quevidkit/llms.txt
