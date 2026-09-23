@@ -43,7 +43,7 @@ def build_basic_probe(path: str) -> dict[str, Any]:
                 "profile,level,pix_fmt,width,height,sample_aspect_ratio,display_aspect_ratio,r_frame_rate,"
                 "avg_frame_rate,time_base,start_time,duration,bit_rate,nb_frames,has_b_frames,"
                 "extradata_size,color_range,color_space,color_transfer,color_primaries,field_order,tags,"
-                "disposition"
+                "disposition,sample_rate,channels,channel_layout"
             ),
             path,
         ]

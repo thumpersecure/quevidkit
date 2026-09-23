@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -24,6 +25,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
 
 from .models import AnalysisOptions
+from .pdf_metadata import PdfMetadataError, extract_pdf_metadata
 from .pipeline import analyze_video
 
 
@@ -32,6 +34,15 @@ TEMPLATES = Jinja2Templates(directory=str(ROOT / "templates"))
 UPLOAD_DIR = Path(os.environ.get("QVK_UPLOAD_DIR", "/tmp/quevidkit_uploads"))
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 MAX_UPLOAD_BYTES = int(os.environ.get("QVK_MAX_UPLOAD_BYTES", str(1024 * 1024 * 1024)))
+MAX_PDF_UPLOAD_BYTES = int(os.environ.get("QVK_MAX_PDF_UPLOAD_BYTES", str(64 * 1024 * 1024)))
+
+# Hard wall-clock cap on PDF metadata extraction. pypdf is patched against the
+# known recursion/quadratic-blowup CVEs, but a hostile cross-reference table
+# or object graph is still cheap to construct and expensive to parse — this
+# runs the parse in an isolated, killable child process rather than trusting
+# the parser's own resilience, the same defense-in-depth pattern used for
+# video analysis (see ANALYSIS_JOB_TIMEOUT_SECONDS).
+PDF_METADATA_TIMEOUT_SECONDS = int(os.environ.get("QVK_PDF_METADATA_TIMEOUT_SECONDS", "20"))
 UPLOAD_RETENTION_SECONDS = int(os.environ.get("QVK_UPLOAD_RETENTION_SECONDS", str(24 * 60 * 60)))
 KEEP_UPLOADS = os.environ.get("QVK_KEEP_UPLOADS", "0") == "1"
 
@@ -346,6 +357,24 @@ def _looks_like_supported_video(head: bytes) -> bool:
     return False
 
 
+def _sanitize_display_filename(name: str, max_length: int = 255) -> str:
+    """Reduce a client-supplied filename to a bare display name before it's
+    echoed back in a response or written to logs: drop any directory
+    components (a client can send "../../etc/passwd.pdf" as the multipart
+    filename — harmless on disk since the write path is always
+    Path(name).name, but it shouldn't come back out of the API looking like
+    a path either), strip control chars, cap length."""
+    base = Path(name).name or name
+    stripped = "".join(ch for ch in base if ch.isprintable())
+    return stripped[:max_length] or "upload.pdf"
+
+
+def _looks_like_pdf(head: bytes) -> bool:
+    # %PDF- header, optionally preceded by a UTF-8 BOM or leading whitespace
+    # some producers emit before the real header.
+    return head[:5] == b"%PDF-" or head.lstrip()[:5] == b"%PDF-"
+
+
 def _parse_options(raw_options: str | None) -> AnalysisOptions:
     if not raw_options:
         return AnalysisOptions()
@@ -403,6 +432,32 @@ async def _save_upload_stream(file: UploadFile, destination: Path) -> int:
     return total_bytes
 
 
+async def _save_pdf_upload_stream(file: UploadFile, destination: Path) -> int:
+    total_bytes = 0
+    head = b""
+    with destination.open("wb") as handle:
+        while True:
+            chunk = await file.read(1024 * 1024)
+            if not chunk:
+                break
+            if total_bytes == 0:
+                head = chunk[:64]
+            total_bytes += len(chunk)
+            if total_bytes > MAX_PDF_UPLOAD_BYTES:
+                handle.close()
+                destination.unlink(missing_ok=True)
+                raise HTTPException(status_code=413, detail=f"File too large. Maximum upload size is {MAX_PDF_UPLOAD_BYTES // (1024 * 1024)} MB.")
+            handle.write(chunk)
+    await file.close()
+    if total_bytes < 16:
+        destination.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail="File appears to be empty or invalid.")
+    if not _looks_like_pdf(head):
+        destination.unlink(missing_ok=True)
+        raise HTTPException(status_code=415, detail="File content does not match a PDF document.")
+    return total_bytes
+
+
 def _client_id_from_request(request: Request) -> str:
     ip = (request.client.host if request.client and request.client.host else "unknown")
     user_agent = request.headers.get("user-agent", "")[:256]
@@ -454,6 +509,52 @@ def _analyze_video_subprocess_target(file_path: str, options_dict: dict[str, Any
         result_queue.put(("ok", result.to_dict()))
     except Exception as exc:  # pragma: no cover - broad for subprocess resilience
         result_queue.put(("error", str(exc)))
+
+
+def _extract_pdf_metadata_subprocess_target(file_path: str, result_queue: "multiprocessing.Queue") -> None:
+    """Runs in a child process — see _run_pdf_metadata_extraction for why."""
+    try:
+        metadata = extract_pdf_metadata(file_path)
+        result_queue.put(("ok", metadata))
+    except PdfMetadataError as exc:
+        result_queue.put(("error", str(exc)))
+    except Exception as exc:  # pragma: no cover - broad for subprocess resilience
+        result_queue.put(("error", f"Could not parse PDF: {exc}"))
+
+
+def _run_pdf_metadata_extraction(file_path: str) -> dict[str, Any]:
+    """Blocking; call via run_in_executor from the async route handler.
+
+    Isolated in a child process with a hard timeout for the same reason video
+    analysis is: a parser bug or adversarial PDF structure can hang or
+    balloon memory, and only a separate process can actually be killed for
+    that, not just abandoned.
+    """
+    ctx = multiprocessing.get_context("spawn")
+    result_queue: multiprocessing.Queue = ctx.Queue(maxsize=1)
+    proc = ctx.Process(
+        target=_extract_pdf_metadata_subprocess_target,
+        args=(file_path, result_queue),
+        daemon=True,
+    )
+    proc.start()
+    proc.join(timeout=PDF_METADATA_TIMEOUT_SECONDS)
+
+    if proc.is_alive():
+        proc.terminate()
+        proc.join(timeout=5)
+        if proc.is_alive():  # pragma: no cover - defensive, terminate() is normally enough
+            proc.kill()
+            proc.join(timeout=5)
+        raise PdfMetadataError(f"PDF parsing exceeded the {PDF_METADATA_TIMEOUT_SECONDS}s time limit and was stopped.")
+
+    if result_queue.empty():
+        raise PdfMetadataError(f"PDF parsing process exited unexpectedly (exit code {proc.exitcode}).")
+
+    outcome, payload = result_queue.get()
+    if outcome == "ok":
+        return payload
+    raise PdfMetadataError(payload)
 
 
 def _run_analysis_job(job_id: str) -> None:
@@ -620,6 +721,45 @@ async def delete_job(request: Request, job_id: str) -> dict[str, str]:
     except OSError:
         pass
     return {"status": "deleted", "job_id": job_id}
+
+
+@app.post("/api/v1/pdf-metadata")
+async def pdf_metadata(request: Request, file: UploadFile = File(...)) -> dict[str, Any]:
+    # Stateless by design: no job queue/JobStore entry, response is synchronous.
+    # Parsing itself still runs in an isolated, timeout-bounded child process
+    # (see _run_pdf_metadata_extraction) — a malicious PDF gets the same
+    # blast-radius containment as a malicious video, not a free pass because
+    # the happy path is fast.
+    principal = _authorize_request(request)
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Missing file name")
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=415, detail="Unsupported format. Only PDF is supported.")
+
+    # The client-supplied filename is attacker-controlled and gets echoed
+    # back in the response and written to logs — strip control/non-printable
+    # characters and cap length before it goes anywhere. Path(...).name
+    # (below) separately handles the on-disk path, this is just for display.
+    safe_filename = _sanitize_display_filename(file.filename)
+
+    _cleanup_old_uploads()
+    destination = UPLOAD_DIR / f"pdf_{uuid.uuid4().hex[:12]}_{Path(file.filename).name}"
+    file_size_bytes = await _save_pdf_upload_stream(file, destination)
+    try:
+        loop = asyncio.get_running_loop()
+        metadata = await loop.run_in_executor(executor, _run_pdf_metadata_extraction, str(destination))
+    except PdfMetadataError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    finally:
+        if not KEEP_UPLOADS:
+            destination.unlink(missing_ok=True)
+
+    return {
+        "filename": safe_filename,
+        "file_size_bytes": file_size_bytes,
+        "metadata": metadata,
+        "session_key_remaining_jobs": principal.remaining_job_creates,
+    }
 
 
 def run() -> None:

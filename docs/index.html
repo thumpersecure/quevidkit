@@ -254,6 +254,16 @@
         Download report (HTML)
       </button>
 
+      <details class="advanced" id="video-metadata-panel" style="margin-top:16px">
+        <summary>
+          <svg class="summary-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h7"/></svg>
+          Video metadata
+        </summary>
+        <div id="video-metadata-body" class="adv-body">
+          <p class="muted">No embedded metadata report available for this analysis mode.</p>
+        </div>
+      </details>
+
       <details class="advanced" style="margin-top:16px">
         <summary>
           <svg class="summary-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 16 4-4-4-4M6 8l-4 4 4 4M14.5 4l-5 16"/></svg>
@@ -261,6 +271,42 @@
         </summary>
         <pre id="result-raw"></pre>
       </details>
+    </section>
+
+    <!-- ── PDF metadata ─────────────────────────────────────────── -->
+    <section class="card">
+      <p class="eyebrow small"><span class="dot"></span>Document forensics</p>
+      <h2 style="margin:0 0 4px">PDF metadata</h2>
+      <p class="muted lead" style="margin-bottom:16px">
+        Upload a PDF to inspect its document info dictionary, XMP metadata, and structure.
+        Requires a quevidkit server connection (see Server connection above).
+      </p>
+
+      <form id="pdf-form">
+        <label class="field">
+          <span>PDF file</span>
+          <div class="dropzone" id="pdf-dropzone">
+            <div class="dropzone-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5-5 5 5"/><path d="M12 5v13"/></svg>
+            </div>
+            <div class="dropzone-text">
+              <div class="dropzone-title" id="pdf-dropzone-title">Choose a PDF or tap to browse</div>
+              <div class="dropzone-file hidden" id="pdf-dropzone-file"></div>
+              <div class="dropzone-hint">Sent to the connected quevidkit server for parsing — not analyzed client-side.</div>
+            </div>
+            <input id="pdf-file" type="file" accept="application/pdf,.pdf" required>
+          </div>
+        </label>
+
+        <button id="pdf-analyze-btn" type="submit" class="btn-primary">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          Read PDF metadata
+        </button>
+
+        <div id="pdf-error-box" class="error hidden"></div>
+      </form>
+
+      <div id="pdf-result" class="adv-body hidden" style="margin-top:16px"></div>
     </section>
 
     <!-- ── Footer ───────────────────────────────────────────────── -->

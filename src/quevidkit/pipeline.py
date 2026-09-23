@@ -18,6 +18,7 @@ from .ffprobe_utils import (
     extract_thumbnail,
     parse_ratio,
     to_float,
+    to_int,
 )
 from .forensics_provenance import container_edit_trace_checks, provenance_manifest_checks
 from .forensics_vision import frequency_artifact_checks, sensor_noise_correlation_checks
@@ -168,6 +169,58 @@ def metadata_codec_checks(basic_probe: dict[str, Any]) -> CheckResult:
         summary=summary,
         details={**details, "findings": findings},
     )
+
+
+def extract_video_metadata(basic_probe: dict[str, Any]) -> dict[str, Any]:
+    """Curated, user-facing metadata report (separate from forensic scoring).
+
+    Pulls the fields investigators actually look for — creation time, GPS,
+    device/software tags — straight out of the raw ffprobe payload rather
+    than folding them into a heuristic like metadata_codec_checks() does.
+    """
+    format_data = basic_probe.get("format", {})
+    video = _extract_video_stream(basic_probe)
+    audio = _extract_audio_stream(basic_probe)
+    format_tags = format_data.get("tags", {}) if isinstance(format_data.get("tags"), dict) else {}
+    video_tags = (video or {}).get("tags", {}) if isinstance((video or {}).get("tags"), dict) else {}
+
+    gps_keys = ("location", "location-eng", "com.apple.quicktime.location.ISO6709", "gps")
+    gps = None
+    for tag_source in (format_tags, video_tags):
+        for key in gps_keys:
+            if tag_source.get(key):
+                gps = tag_source[key]
+                break
+        if gps:
+            break
+
+    return {
+        "container_format": format_data.get("format_long_name") or format_data.get("format_name"),
+        "duration_s": to_float(format_data.get("duration")),
+        "file_size_bytes": to_int(format_data.get("size")),
+        "bit_rate_bps": to_int(format_data.get("bit_rate")),
+        "creation_time": format_tags.get("creation_time") or video_tags.get("creation_time"),
+        "encoder_software": format_tags.get("encoder") or video_tags.get("encoder") or format_tags.get("software"),
+        "gps_location": gps,
+        "video": {
+            "codec": video.get("codec_name") if video else None,
+            "codec_long_name": video.get("codec_long_name") if video else None,
+            "width": video.get("width") if video else None,
+            "height": video.get("height") if video else None,
+            "pixel_format": video.get("pix_fmt") if video else None,
+            "frame_rate": parse_ratio(video.get("avg_frame_rate")) if video else None,
+            "bit_rate_bps": to_int(video.get("bit_rate")) if video else None,
+        } if video else None,
+        "audio": {
+            "codec": audio.get("codec_name") if audio else None,
+            "sample_rate": to_int(audio.get("sample_rate")) if audio else None,
+            "channels": audio.get("channels") if audio else None,
+            "channel_layout": audio.get("channel_layout") if audio else None,
+            "bit_rate_bps": to_int(audio.get("bit_rate")) if audio else None,
+        } if audio else None,
+        "all_format_tags": format_tags,
+        "all_video_stream_tags": video_tags,
+    }
 
 
 def packet_timing_checks(packet_probe: dict[str, Any], fps_hint: float) -> CheckResult:
@@ -2338,6 +2391,7 @@ def analyze_video(path: str, options: AnalysisOptions | None = None) -> Analysis
     video_stream = _extract_video_stream(basic_probe)
     duration_s = _extract_duration(basic_probe, video_stream)
     fps_hint = _extract_fps(video_stream)
+    video_metadata = extract_video_metadata(basic_probe) if ffprobe_available else {}
 
     if opts.enable_metadata_scan:
         if not ffprobe_available:
@@ -2550,4 +2604,5 @@ def analyze_video(path: str, options: AnalysisOptions | None = None) -> Analysis
         explanation=explanation,
         options=asdict(opts),
         debug=debug,
+        metadata=video_metadata,
     )

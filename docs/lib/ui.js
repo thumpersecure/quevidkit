@@ -54,6 +54,12 @@ export const dom = {
   get checkList() { return $('check-list'); },
   get progressPct() { return $('progress-pct'); },
   get gaugeFill() { return $('gauge-fill'); },
+  get videoMetadataBody() { return $('video-metadata-body'); },
+  get pdfForm() { return $('pdf-form'); },
+  get pdfFileInput() { return $('pdf-file'); },
+  get pdfAnalyzeBtn() { return $('pdf-analyze-btn'); },
+  get pdfErrorBox() { return $('pdf-error-box'); },
+  get pdfResult() { return $('pdf-result'); },
 };
 
 // ── Progress-stage definitions ────────────────────────────────────────────────
@@ -307,6 +313,7 @@ export function renderResult(report) {
 
   renderCheckBars(report.checks || []);
   renderTimeline(report);
+  renderVideoMetadata(report.metadata);
 
   dom.resultRaw.textContent = JSON.stringify({
     label: report.label,
@@ -383,6 +390,96 @@ function renderTimeline(report) {
     li.textContent = `[${humanizeCategory(seg.category)}] ${seg.start_s.toFixed(2)}s – ${seg.end_s.toFixed(2)}s (conf ${seg.confidence.toFixed(2)})`;
     dom.resultSegments.appendChild(li);
   }
+}
+
+// ── Video metadata (server/hybrid mode only — requires ffprobe) ─────────────
+
+function metaRow(label, value) {
+  if (value === null || value === undefined || value === '') return '';
+  return `<div class="bar-row"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`;
+}
+
+export function renderVideoMetadata(metadata) {
+  const host = dom.videoMetadataBody;
+  if (!host) return;
+  if (!metadata || Object.keys(metadata).length === 0) {
+    host.innerHTML = '<p class="muted">No embedded metadata report available for this analysis mode. Use Server or Hybrid mode for a full metadata report.</p>';
+    return;
+  }
+  const v = metadata.video || {};
+  const a = metadata.audio || {};
+  const tags = metadata.all_format_tags || {};
+  const tagRows = Object.entries(tags)
+    .filter(([k]) => !['encoder', 'software'].includes(k))
+    .map(([k, val]) => metaRow(k, val)).join('');
+
+  host.innerHTML = `
+    <p class="section-eyebrow" style="margin-top:0">Container</p>
+    ${metaRow('Format', metadata.container_format)}
+    ${metaRow('Duration', metadata.duration_s != null ? `${metadata.duration_s.toFixed(2)}s` : null)}
+    ${metaRow('File size', metadata.file_size_bytes != null ? formatBytesUI(metadata.file_size_bytes) : null)}
+    ${metaRow('Bit rate', metadata.bit_rate_bps != null ? `${Math.round(metadata.bit_rate_bps / 1000)} kb/s` : null)}
+    ${metaRow('Creation time', metadata.creation_time)}
+    ${metaRow('Encoder / software', metadata.encoder_software)}
+    ${metaRow('GPS location', metadata.gps_location)}
+    ${v.codec ? `<p class="section-eyebrow">Video stream</p>
+      ${metaRow('Codec', v.codec_long_name || v.codec)}
+      ${metaRow('Resolution', v.width && v.height ? `${v.width}x${v.height}` : null)}
+      ${metaRow('Pixel format', v.pixel_format)}
+      ${metaRow('Frame rate', v.frame_rate ? `${v.frame_rate.toFixed(2)} fps` : null)}` : ''}
+    ${a.codec ? `<p class="section-eyebrow">Audio stream</p>
+      ${metaRow('Codec', a.codec)}
+      ${metaRow('Sample rate', a.sample_rate ? `${a.sample_rate} Hz` : null)}
+      ${metaRow('Channels', a.channels)}` : ''}
+    ${tagRows ? `<p class="section-eyebrow">All container tags</p>${tagRows}` : ''}
+  `;
+}
+
+function formatBytesUI(n) {
+  const u = ['B', 'KB', 'MB', 'GB'];
+  let i = 0;
+  let v = n;
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+  return `${v.toFixed(v < 10 && i > 0 ? 1 : 0)} ${u[i]}`;
+}
+
+// ── PDF metadata ─────────────────────────────────────────────────────────────
+
+export function renderPdfMetadata(payload) {
+  const host = dom.pdfResult;
+  if (!host) return;
+  host.classList.remove('hidden');
+  const md = payload.metadata || {};
+  const info = md.document_info || {};
+  const xmp = md.xmp_metadata;
+
+  const infoRows = [
+    metaRow('Title', info.title),
+    metaRow('Author', info.author),
+    metaRow('Subject', info.subject),
+    metaRow('Keywords', info.keywords),
+    metaRow('Creator application', info.creator),
+    metaRow('Producer', info.producer),
+    metaRow('Created', info.creation_date),
+    metaRow('Modified', info.modification_date),
+  ].join('');
+
+  const xmpRows = xmp ? Object.entries(xmp)
+    .map(([k, val]) => metaRow(k, val)).join('') : '';
+
+  host.innerHTML = `
+    <p class="section-eyebrow" style="margin-top:0">${esc(payload.filename || 'Document')}</p>
+    ${metaRow('File size', payload.file_size_bytes != null ? formatBytesUI(payload.file_size_bytes) : null)}
+    ${metaRow('Pages', md.page_count)}
+    ${metaRow('Page size', md.page_size ? `${md.page_size.width_pt}pt x ${md.page_size.height_pt}pt` : null)}
+    ${metaRow('Encrypted', md.is_encrypted ? 'Yes' : 'No')}
+    ${metaRow('PDF version', md.pdf_version)}
+    ${metaRow('Contains JavaScript', md.has_javascript ? 'Yes' : 'No')}
+    ${md.attachments && md.attachments.length ? metaRow('Attachments', md.attachments.join(', ')) : ''}
+    <p class="section-eyebrow">Document info dictionary</p>
+    ${infoRows || '<p class="muted">No document info dictionary present.</p>'}
+    ${xmpRows ? `<p class="section-eyebrow">XMP metadata</p>${xmpRows}` : ''}
+  `;
 }
 
 // ── Options ──────────────────────────────────────────────────────────────────

@@ -22,7 +22,7 @@ import { downloadReport } from './lib/report.js';
 import {
   dom, showProgress, hideProgress, showError, hideError,
   renderResult, setCheckStatus, getOptions, applyPreset, PRESETS,
-  qvkLog, initDebugPanel, renderCheckList, STAGES,
+  qvkLog, initDebugPanel, renderCheckList, STAGES, renderPdfMetadata,
 } from './lib/ui.js';
 
 // ── State ────────────────────────────────────────────────────────────────────
@@ -305,6 +305,7 @@ async function runRemoteAnalysis(file, options, baseUrl) {
         sha256: r.file_sha256 || '',
         fileName: file.name,
         fileSize: file.size,
+        metadata: r.metadata || null,
       };
     }
     if (st.status === 'failed') throw new Error('Server analysis failed.');
@@ -414,9 +415,80 @@ async function loadDemoVideo() {
   }
 }
 
+function reflectSelectedPdf() {
+  const dz = document.getElementById('pdf-dropzone');
+  const titleEl = document.getElementById('pdf-dropzone-title');
+  const fileEl = document.getElementById('pdf-dropzone-file');
+  const file = dom.pdfFileInput?.files?.[0];
+  if (!dz || !titleEl || !fileEl) return;
+  if (file) {
+    dz.classList.add('has-file');
+    titleEl.textContent = 'Ready to read';
+    fileEl.textContent = `${file.name} · ${formatBytes(file.size)}`;
+    fileEl.classList.remove('hidden');
+  } else {
+    dz.classList.remove('has-file');
+    titleEl.textContent = 'Choose a PDF or tap to browse';
+    fileEl.textContent = '';
+    fileEl.classList.add('hidden');
+  }
+}
+
+let isPdfAnalyzing = false;
+
+async function handlePdfSubmit(e) {
+  e.preventDefault();
+  if (isPdfAnalyzing) return;
+  if (dom.pdfErrorBox) { dom.pdfErrorBox.textContent = ''; dom.pdfErrorBox.classList.add('hidden'); }
+  if (dom.pdfResult) dom.pdfResult.classList.add('hidden');
+
+  const file = dom.pdfFileInput?.files?.[0];
+  if (!file) {
+    if (dom.pdfErrorBox) { dom.pdfErrorBox.textContent = 'Select a PDF file.'; dom.pdfErrorBox.classList.remove('hidden'); }
+    return;
+  }
+
+  const { baseUrl, error } = parseBaseUrl(dom.serverUrl?.value);
+  if (!baseUrl || error) {
+    if (dom.pdfErrorBox) {
+      dom.pdfErrorBox.textContent = error || 'Enter a server URL in Server connection above — PDF metadata requires a quevidkit server.';
+      dom.pdfErrorBox.classList.remove('hidden');
+    }
+    return;
+  }
+
+  isPdfAnalyzing = true;
+  if (dom.pdfAnalyzeBtn) dom.pdfAnalyzeBtn.disabled = true;
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    const resp = await remoteFetch(baseUrl, '/api/v1/pdf-metadata', { method: 'POST', body: fd });
+    if (!resp.ok) {
+      let detail = `Request failed (${resp.status})`;
+      try { detail = (await resp.json()).detail || detail; } catch { /* ignore */ }
+      throw new Error(detail);
+    }
+    const payload = await resp.json();
+    renderPdfMetadata(payload);
+  } catch (err) {
+    if (dom.pdfErrorBox) { dom.pdfErrorBox.textContent = err.message; dom.pdfErrorBox.classList.remove('hidden'); }
+    qvkLog(`PDF metadata failed: ${err.message}`, 'err');
+  } finally {
+    isPdfAnalyzing = false;
+    if (dom.pdfAnalyzeBtn) dom.pdfAnalyzeBtn.disabled = false;
+  }
+}
+
 function init() {
   if (dom.presetSelect) {
     dom.presetSelect.addEventListener('change', () => applyPreset(dom.presetSelect.value));
+  }
+
+  if (dom.pdfFileInput) {
+    dom.pdfFileInput.addEventListener('change', reflectSelectedPdf);
+  }
+  if (dom.pdfForm) {
+    dom.pdfForm.addEventListener('submit', handlePdfSubmit);
   }
 
   if (dom.fileInput) {

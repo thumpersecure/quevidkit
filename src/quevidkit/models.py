@@ -127,6 +127,7 @@ class AnalysisResult:
     explanation: list[str] = field(default_factory=list)
     options: dict[str, Any] = field(default_factory=dict)
     debug: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable dict representation of the analysis result."""
@@ -151,6 +152,7 @@ class AnalysisResult:
             "explanation": self.explanation if self.explanation is not None else [],
             "options": self.options,
             "debug": self.debug,
+            "metadata": self.metadata,
         }
 
     def to_json(self, indent: int = 2) -> str:
