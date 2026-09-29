@@ -10,7 +10,7 @@
 
 quevidkit is an open-source forensic video-tampering detection toolkit
 consisting of a Python analysis engine/REST API (`qvk`) and a web front-end
-at https://thumpersecure.github.io/quevidkit/. The hosted web app runs
+at https://quevidkit.com/. The hosted web app runs
 entirely in-browser by default (Client-Only mode: parses the MP4/MOV binary
 container directly, zero uploads, zero server requirement) and can
 optionally connect to a self-hosted quevidkit server for deeper
@@ -65,7 +65,7 @@ itself evidence of tampering.
 ## How to Cite
 
 - Project: quevidkit
-- Web app: https://thumpersecure.github.io/quevidkit/
+- Web app: https://quevidkit.com/
 - Repository: https://github.com/thumpersecure/quevidkit
 - License: MIT
 
