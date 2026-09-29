@@ -14,7 +14,7 @@
 
 ### ▶️ [**Open the free web app**](https://quevidkit.com/) — no install, no account, your video never leaves your device
 
-[Web App](https://quevidkit.com/) · [The 19 Checks](#the-19-quevidkit-forensic-checks) · [Quick Start](#quick-start) · [API](#curl-example) · [The Science](que-science.md) · [Changelog](CHANGELOG.md) · [Sponsor](https://github.com/sponsors/thumpersecure)
+[Web App](https://quevidkit.com/) · [The 19 Checks](#the-19-quevidkit-forensic-checks) · [Quick Start](#quick-start) · [API](#curl-example) · [The Science](que-science.md) · [Changelog](CHANGELOG.md) · [Buy Me a Coffee](https://buymeacoffee.com/thumpersecure) · [Bitcoin](bitcoin:bc1qcj7d7czqdj2kjxs9w8edlzdhj3lnevdnzhs26m)
 
 </div>
 
