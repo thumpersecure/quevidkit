@@ -6,7 +6,7 @@
 
 **Forensic video tampering analysis — 19 checks, evidence-backed probability, not legal certainty.**
 
-[![Version](https://img.shields.io/badge/version-1.0.2-2bc4d8?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.0.3-2bc4d8?style=flat-square)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/license-MIT-34d69a?style=flat-square)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue?style=flat-square)](pyproject.toml)
 [![Runs in your browser](https://img.shields.io/badge/client--side-no%20upload%20required-f5b445?style=flat-square)](https://quevidkit.com/)
@@ -20,7 +20,7 @@
 
 ---
 
-# quevidkit v1.0.1
+# quevidkit v1.0.3
 
 quevidkit is a forensic video tampering analysis toolkit with:
 

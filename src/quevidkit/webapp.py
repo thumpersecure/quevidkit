@@ -644,7 +644,7 @@ async def index(request: Request) -> HTMLResponse:
 
 @app.get("/api/health")
 async def health() -> dict[str, Any]:
-    return {"status": "ok", "version": "1.0.1", "service": "quevidkit", "max_upload_bytes": MAX_UPLOAD_BYTES}
+    return {"status": "ok", "version": "1.0.3", "service": "quevidkit", "max_upload_bytes": MAX_UPLOAD_BYTES}
 
 
 @app.post("/api/v1/session-key")

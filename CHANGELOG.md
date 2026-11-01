@@ -3,6 +3,15 @@
 All notable changes to this project are documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.0.3]
+
+- Fix: iOS/Safari uploads from quevidkit.com failed because CORS only allowed the github.io origin; quevidkit.com and www are now always allowed
+- Fix: uploads over the server limit returned an opaque nginx 413 that Safari reports as "Load failed"; the app now reads `max_upload_bytes` from the server, checks size up front and shows a clear message
+- Fix: remote/hybrid uploads use XHR with progress, retry once on a stale session, and surface the server's error detail; `.qt` and extensionless files that pass the magic-byte check are accepted
+- Fix: large iOS files no longer abort client mode when `arrayBuffer()` fails, and video metadata loading/seek time out instead of hanging
+- `/api/health` now reports the real version
+- Site: animated darkroom POV header (146 KB WebM / 170 KB MP4, poster-only for reduced-motion and Save-Data visitors)
+
 ## [1.0.2]
 
 - Add PDF metadata endpoint and surface video metadata report
