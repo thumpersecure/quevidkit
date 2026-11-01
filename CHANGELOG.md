@@ -3,6 +3,12 @@
 All notable changes to this project are documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.0.2]
+
+- Add PDF metadata endpoint and surface video metadata report
+- Fix: `frame_quality_shift` raised a numpy broadcast error on every video (not only odd-width ones) because the 8x8 blockiness measure paired unequal-length column/row slices of the fixed 320x180 analysis frame; the check now runs and has regression tests
+- Docs: canonical URLs, host the science PDF on the site (GitHub links 404 while the repo is private), 100dvh body height, version strings aligned
+
 ## [1.0.1]
 
 - Fix: analysis jobs now run with a hard wall-clock timeout (`QVK_ANALYSIS_JOB_TIMEOUT_SECONDS`, default 600s), enforced by running each job in its own process so a stuck/adversarial upload can be terminated instead of hanging a worker indefinitely
