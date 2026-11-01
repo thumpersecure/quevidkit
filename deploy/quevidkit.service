@@ -1,21 +1,29 @@
+# /etc/systemd/system/quevidkit.service
+# Mirrors the live unit on Simpsons (72.62.7.186).
 [Unit]
-Description=quevidkit forensic video analysis web service
+Description=quevidkit forensic video API
 After=network.target
+# Hard cap on restart storms: at most 5 starts per 5 minutes, then the unit
+# goes "failed" (and OnFailure= pushes an ntfy alert) instead of spinning.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+OnFailure=quevidkit-notify.service
 
 [Service]
 Type=simple
-User=quevidkit
-Group=quevidkit
 WorkingDirectory=/opt/quevidkit
-EnvironmentFile=/opt/quevidkit/.env
-# --workers 1 is required: the session-key store and job store are
-# in-memory per-process, so running more than one uvicorn worker splits
-# that state across processes and causes "unknown session key" errors.
-# Scale out with additional service instances behind a reverse proxy
-# load balancer instead, if needed.
-ExecStart=/opt/quevidkit/venv/bin/uvicorn quevidkit.webapp:app --host 127.0.0.1 --port 8000 --workers 1
+EnvironmentFile=/opt/quevidkit/quevidkit.env
+# Fail fast and loudly if the interpreter / venv / dependencies are broken
+# (e.g. the system python was upgraded underneath the venv).
+ExecStartPre=/opt/quevidkit/venv/bin/python -c "import uvicorn, fastapi, numpy, cv2, quevidkit.webapp"
+# --workers 1 is REQUIRED: session keys and jobs are in-memory per process;
+# more than one worker causes "Unknown session key" 401s.
+ExecStart=/opt/quevidkit/venv/bin/uvicorn quevidkit.webapp:app --host 127.0.0.1 --port 8000 --proxy-headers --forwarded-allow-ips=* --workers 1
 Restart=always
-RestartSec=5
+RestartSec=10
+# light hardening
+NoNewPrivileges=true
+PrivateTmp=true
 
 [Install]
 WantedBy=multi-user.target

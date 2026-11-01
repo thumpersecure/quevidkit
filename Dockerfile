@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.13-slim
 
 # ffmpeg provides ffprobe/ffmpeg, which quevidkit requires on PATH for
 # container/codec/timing analysis (see README).
@@ -9,7 +9,7 @@ RUN apt-get update \
 WORKDIR /app
 COPY . /app
 
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir -r deploy/requirements.lock && pip install --no-cache-dir --no-deps .
 
 # --- Runtime configuration -------------------------------------------------
 # These are sane defaults; override at `docker run -e` / compose time.

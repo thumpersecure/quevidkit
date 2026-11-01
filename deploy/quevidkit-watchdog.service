@@ -1,0 +1,6 @@
+[Unit]
+Description=quevidkit health watchdog
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/quevidkit-watchdog.sh

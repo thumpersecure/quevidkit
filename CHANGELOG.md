@@ -8,6 +8,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Add PDF metadata endpoint and surface video metadata report
 - Fix: `frame_quality_shift` raised a numpy broadcast error on every video (not only odd-width ones) because the 8x8 blockiness measure paired unequal-length column/row slices of the fixed 320x180 analysis frame; the check now runs and has regression tests
 - Docs: canonical URLs, host the science PDF on the site (GitHub links 404 while the repo is private), 100dvh body height, version strings aligned
+- Ops: systemd unit now has StartLimit (5 starts/5 min), RestartSec=10, an ExecStartPre import check, and OnFailure= ntfy alert, so a broken interpreter/venv fails fast and loudly instead of crash-looping (a Python 3.13->3.14 apt bump left the venv symlink dangling and the service spun ~220k times unnoticed)
+- Ops: add `deploy/quevidkit-watchdog.{sh,service,timer}` (1-minute `/api/health` probe, local and via nginx, ntfy on down/recovery), `deploy/rebuild-venv.sh` (self-contained `--copies` venv) and `deploy/requirements.lock`
+- Deps: bump minimums to the tested set (fastapi 0.162, uvicorn 0.54, starlette 1.10, numpy 2.5, pypdf 6.21, python-multipart 0.0.33), add upper bounds; pip-audit clean; suite passes on Python 3.13 and 3.14; Dockerfile base moved to python:3.13-slim and installs from the lockfile
 
 ## [1.0.1]
 

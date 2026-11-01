@@ -1,0 +1,7 @@
+# Triggered by OnFailure= from quevidkit.service (start limit hit / hard failure).
+[Unit]
+Description=quevidkit failure ntfy alert
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/quevidkit-watchdog.sh failed

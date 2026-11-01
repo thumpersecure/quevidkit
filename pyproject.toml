@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "quevidkit"
-version = "1.0.1"
+version = "1.0.2"
 description = "Forensic video tampering detection toolkit with web UI"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -13,13 +13,13 @@ authors = [
   {name = "quevidkit contributors"}
 ]
 dependencies = [
-  "fastapi>=0.115",
-  "uvicorn>=0.30",
-  "python-multipart>=0.0.9",
+  "fastapi>=0.139,<1",
+  "uvicorn>=0.51,<1",
+  "python-multipart>=0.0.32,<1",
   "jinja2>=3.1",
-  "numpy>=1.26",
-  "opencv-python-headless>=4.9",
-  "pypdf>=4.2",
+  "numpy>=1.26,<3",
+  "opencv-python-headless>=4.9,<6",
+  "pypdf>=6.19,<7",
 ]
 
 [project.optional-dependencies]
