@@ -142,3 +142,48 @@ def test_job_store_evicts_oldest_job_past_max_stored_jobs():
     assert store.get("job_0") is None  # oldest evicted
     assert store.get("job_1") is not None
     assert store.get("job_2") is not None
+
+
+# --- iOS upload path ---------------------------------------------------------
+
+# iPhone camera/Photos export: QuickTime brand "qt  " (also used for HEVC .MOV).
+IOS_QT_BYTES = b"\x00\x00\x00\x14ftypqt  \x00\x00\x02\x00qt  " + b"\x00" * 32
+IOS_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 Version/18.1 Mobile/15E148 Safari/604.1"
+
+
+def test_cors_origins_always_include_official_frontends():
+    origins = webapp._build_cors_origins("https://thumpersecure.github.io")
+    assert "https://quevidkit.com" in origins
+    assert "https://www.quevidkit.com" in origins
+    assert webapp._build_cors_origins("") == ["*"]
+    assert webapp._build_cors_origins("*") == ["*"]
+
+
+def test_ios_quicktime_upload_accepted_with_empty_or_quicktime_type(monkeypatch, tmp_path):
+    client = _build_client(monkeypatch, tmp_path)
+    key = _issue_key(client, user_agent=IOS_UA)
+    for name, ctype in (("IMG_0001.MOV", "video/quicktime"), ("IMG_0002.MOV", ""), ("IMG_0003", "")):
+        r = client.post(
+            "/api/v1/jobs",
+            files={"file": (name, IOS_QT_BYTES, ctype)},
+            headers={"x-session-key": key, "user-agent": IOS_UA},
+        )
+        assert r.status_code == 202, (name, r.text)
+
+
+def test_extensionless_non_video_still_rejected(monkeypatch, tmp_path):
+    client = _build_client(monkeypatch, tmp_path)
+    key = _issue_key(client, user_agent=IOS_UA)
+    r = client.post(
+        "/api/v1/jobs",
+        files={"file": ("IMG_0003", b"%PDF-1.7 not a video at all......", "")},
+        headers={"x-session-key": key, "user-agent": IOS_UA},
+    )
+    assert r.status_code == 415
+
+
+def test_session_key_and_health_advertise_max_upload_bytes(monkeypatch, tmp_path):
+    client = _build_client(monkeypatch, tmp_path)
+    r = client.post("/api/v1/session-key", headers={"user-agent": IOS_UA})
+    assert r.json()["max_upload_bytes"] == webapp.MAX_UPLOAD_BYTES
+    assert client.get("/api/health").json()["max_upload_bytes"] == webapp.MAX_UPLOAD_BYTES

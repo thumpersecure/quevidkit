@@ -311,10 +311,26 @@ session_keys = SessionKeyManager(
 executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="qvk-worker")
 
 _cors_origins_raw = os.environ.get("QVK_CORS_ALLOW_ORIGINS", "").strip()
-if _cors_origins_raw:
-    _cors_allow_origins = [o.strip() for o in _cors_origins_raw.split(",") if o.strip()]
-else:
-    _cors_allow_origins = ["*"]
+# Official frontends are always allowed, even when QVK_CORS_ALLOW_ORIGINS is
+# set to a narrower list: the GH Pages app is also served from the custom
+# domains in docs/CNAME, and a browser on any of them (notably iOS Safari,
+# which reports a CORS rejection as a bare "Load failed") is otherwise blocked.
+DEFAULT_FRONTEND_ORIGINS = [
+    "https://thumpersecure.github.io",
+    "https://quevidkit.com",
+    "https://www.quevidkit.com",
+]
+def _build_cors_origins(raw: str) -> list[str]:
+    raw = raw.strip()
+    if not raw:
+        return ["*"]
+    origins = [o.strip() for o in raw.split(",") if o.strip()]
+    if "*" not in origins:
+        origins += [o for o in DEFAULT_FRONTEND_ORIGINS if o not in origins]
+    return origins
+
+
+_cors_allow_origins = _build_cors_origins(_cors_origins_raw)
 
 app.add_middleware(
     CORSMiddleware,
@@ -328,7 +344,7 @@ app.add_middleware(
 
 def _allowed_filename(name: str) -> bool:
     lowered = name.lower()
-    return lowered.endswith((".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v", ".ts", ".3gp"))
+    return lowered.endswith((".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v", ".ts", ".3gp", ".qt"))
 
 
 # Magic-byte signatures for the containers _allowed_filename() permits. This
@@ -627,8 +643,8 @@ async def index(request: Request) -> HTMLResponse:
 
 
 @app.get("/api/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok", "version": "1.0.1", "service": "quevidkit"}
+async def health() -> dict[str, Any]:
+    return {"status": "ok", "version": "1.0.1", "service": "quevidkit", "max_upload_bytes": MAX_UPLOAD_BYTES}
 
 
 @app.post("/api/v1/session-key")
@@ -645,6 +661,7 @@ async def create_session_key(request: Request) -> JSONResponse:
             "expires_in_seconds": payload["expires_in_seconds"],
             "rate_limit": quota,
             "job_quota": payload["job_quota"],
+            "max_upload_bytes": MAX_UPLOAD_BYTES,
         },
         headers={"Cache-Control": "no-store"},
     )
@@ -669,7 +686,9 @@ async def create_job(
     principal = _authorize_request(request, consume_job_create=True)
     if not file.filename:
         raise HTTPException(status_code=400, detail="Missing file name")
-    if not _allowed_filename(file.filename):
+    # Extensionless names (some iOS share/Files flows) are accepted here and
+    # still have to pass the magic-byte check in _save_upload_stream().
+    if Path(file.filename).suffix and not _allowed_filename(file.filename):
         raise HTTPException(status_code=415, detail="Unsupported video format. Supported formats: MP4, MOV, MKV, AVI, WebM, M4V.")
 
     parsed_options = _parse_options(options)

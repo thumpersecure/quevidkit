@@ -516,12 +516,26 @@ function histogramCorrelation(h1, h2) {
   return denom > 0 ? num / denom : 1;
 }
 
+// iOS Safari can leave a detached <video> without ever firing seeked/loadedmetadata/
+// error (unsupported codec, Low Power Mode, memory pressure). Without a timeout the
+// whole analysis hangs forever, so every wait is bounded.
+const SEEK_TIMEOUT_MS = 8000;
+const META_TIMEOUT_MS = 20000;
+
 function waitSeek(video, t) {
   return new Promise((resolve, reject) => {
-    const onSeeked = () => { video.removeEventListener('seeked', onSeeked); resolve(); };
-    const onError = () => { video.removeEventListener('error', onError); reject(new Error('Seek failed')); };
-    video.addEventListener('seeked', onSeeked, { once: true });
-    video.addEventListener('error', onError, { once: true });
+    let timer;
+    const done = (fn, arg) => {
+      clearTimeout(timer);
+      video.removeEventListener('seeked', onSeeked);
+      video.removeEventListener('error', onError);
+      fn(arg);
+    };
+    const onSeeked = () => done(resolve);
+    const onError = () => done(reject, new Error('Seek failed'));
+    video.addEventListener('seeked', onSeeked);
+    video.addEventListener('error', onError);
+    timer = setTimeout(() => done(reject, new Error('Seek timed out')), SEEK_TIMEOUT_MS);
     video.currentTime = t;
   });
 }
@@ -530,12 +544,21 @@ function loadVideoMeta(file) {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const v = document.createElement('video');
-    v.preload = 'metadata';
+    v.preload = 'auto';
     v.muted = true;
     v.playsInline = true;
+    v.setAttribute('playsinline', '');
+    v.setAttribute('webkit-playsinline', '');
+    const fail = (msg) => { clearTimeout(timer); URL.revokeObjectURL(url); reject(new Error(msg)); };
+    const timer = setTimeout(() => fail('Browser could not read this video in time (try Server mode, or a shorter clip).'), META_TIMEOUT_MS);
     v.src = url;
-    v.onloadedmetadata = () => resolve({ video: v, url, duration: v.duration, width: v.videoWidth, height: v.videoHeight });
-    v.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Cannot decode video in browser.')); };
+    v.onloadedmetadata = () => {
+      clearTimeout(timer);
+      const duration = Number.isFinite(v.duration) ? v.duration : 0;
+      resolve({ video: v, url, duration, width: v.videoWidth, height: v.videoHeight });
+    };
+    v.onerror = () => fail('Cannot decode video in browser.');
+    v.load();
   });
 }
 

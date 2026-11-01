@@ -35,6 +35,8 @@ let isAnalyzing = false;
 const SESSION_KEY = 'qvk.remote.session';
 const BASE_URL_KEY = 'qvk.remote.baseUrl';
 const FALLBACK_LIMIT = 10;
+const DEFAULT_MAX_UPLOAD_BYTES = 300 * 1024 * 1024; // live nginx/QVK_MAX_UPLOAD_BYTES
+
 
 function parseBaseUrl(raw) {
   const v = (raw || '').trim();
@@ -56,8 +58,8 @@ function loadSession(baseUrl) {
   try { return JSON.parse(sessionStorage.getItem(`${SESSION_KEY}.${baseUrl}`) || 'null'); }
   catch { return null; }
 }
-function saveSession(baseUrl, s) { sessionStorage.setItem(`${SESSION_KEY}.${baseUrl}`, JSON.stringify(s)); }
-function clearSession(baseUrl) { sessionStorage.removeItem(`${SESSION_KEY}.${baseUrl}`); }
+function saveSession(baseUrl, s) { try { sessionStorage.setItem(`${SESSION_KEY}.${baseUrl}`, JSON.stringify(s)); } catch { /* storage blocked */ } }
+function clearSession(baseUrl) { try { sessionStorage.removeItem(`${SESSION_KEY}.${baseUrl}`); } catch { /* storage blocked */ } }
 function isExpired(s) { return !s?.expiresAtMs || Date.now() >= s.expiresAtMs; }
 
 async function ensureSession(baseUrl) {
@@ -78,6 +80,7 @@ async function ensureSession(baseUrl) {
     key: data.session_key,
     expiresAtMs: new Date(data.expires_at_utc).getTime() || (Date.now() + 30 * 60000),
     quota: data.job_quota || { limit: FALLBACK_LIMIT, remaining: FALLBACK_LIMIT },
+    maxUploadBytes: Number(data.max_upload_bytes) || 0,
   };
   saveSession(baseUrl, record);
   return record;
@@ -121,22 +124,29 @@ async function runClientAnalysis(file, options) {
 
   showProgress(2, 'Reading file...', 'Binary parsing');
 
-  let buffer;
+  // iOS Safari can refuse (or run out of memory on) a whole-file arrayBuffer()
+  // for large camera clips. That must not abort the run: fall back to the
+  // visual checks only, which stream the file through a <video> element.
+  let buffer = null;
   try {
     buffer = await file.arrayBuffer();
   } catch (e) {
-    throw new Error(`Cannot read file: ${e.message}`);
+    qvkLog(`file.arrayBuffer() failed (${e.name}: ${e.message}); container checks skipped`, 'warn');
+    showProgress(8, 'File too large to read fully on this device; running visual checks only...', 'Fallback');
   }
 
   showProgress(8, 'Computing file hash...', 'Integrity check');
   let sha256 = '';
-  try {
-    sha256 = await computeSHA256(buffer);
-  } catch { /* crypto.subtle might be unavailable in insecure contexts */ }
+  if (buffer) {
+    try {
+      sha256 = await computeSHA256(buffer);
+    } catch { /* crypto.subtle might be unavailable in insecure contexts */ }
+  }
 
   showProgress(12, 'Parsing MP4 container...', 'Container analysis');
   let parsed = null;
   try {
+    if (!buffer) throw new Error('no buffer');
     parsed = parseMP4(buffer);
   } catch (e) {
     showProgress(12, 'Container parsing failed, continuing with visual analysis...', 'Fallback');
@@ -259,6 +269,50 @@ async function runClientAnalysis(file, options) {
 
 // ── Remote (server) analysis ─────────────────────────────────────────────────
 
+// POST the multipart form with XHR so we get upload progress (fetch has none).
+// Retries once with a fresh session on 401 (expired / fingerprint changed, e.g.
+// the phone switched Wi-Fi <-> cellular or Private Relay rotated its egress IP).
+function xhrPost(url, sessionKey, fd, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url);
+    xhr.setRequestHeader('X-Session-Key', sessionKey);
+    xhr.responseType = 'text';
+    if (xhr.upload && onProgress) {
+      xhr.upload.onprogress = (e) => { if (e.lengthComputable && e.total) onProgress(e.loaded / e.total); };
+    }
+    xhr.onload = () => {
+      const text = xhr.responseText || '';
+      resolve({ ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status, json: async () => JSON.parse(text) });
+    };
+    xhr.onerror = () => reject(new Error('network error (connection dropped, blocked by CORS, or file over the server size limit)'));
+    xhr.ontimeout = () => reject(new Error('upload timed out'));
+    xhr.onabort = () => reject(new Error('upload aborted (keep the screen on and this tab in the foreground)'));
+    xhr.send(fd);
+  });
+}
+
+async function uploadJob(baseUrl, fd, onProgress) {
+  const path = '/api/v1/jobs';
+  let session = await ensureSession(baseUrl);
+  qvkLog(`POST ${path} (upload)`);
+  let resp;
+  try {
+    resp = await xhrPost(`${baseUrl}${path}`, session.key, fd, onProgress);
+    if (resp.status === 401) {
+      qvkLog(`POST ${path} -> 401, refreshing session`, 'warn');
+      clearSession(baseUrl);
+      session = await ensureSession(baseUrl);
+      resp = await xhrPost(`${baseUrl}${path}`, session.key, fd, onProgress);
+    }
+  } catch (e) {
+    qvkLog(`POST ${path} FAILED: ${e.message}`, 'err');
+    throw new Error(`Upload failed — ${e.message}`);
+  }
+  qvkLog(`POST ${path} -> ${resp.status}`, resp.ok ? 'ok' : 'err');
+  return resp;
+}
+
 async function runRemoteAnalysis(file, options, baseUrl) {
   showProgress(5, 'Connecting to server...', 'Authentication');
   await ensureSession(baseUrl);
@@ -272,8 +326,21 @@ async function runRemoteAnalysis(file, options, baseUrl) {
     max_frames: options.maxSamples,
     sensitivity: options.sensitivity,
   }));
-  const jobResp = await remoteFetch(baseUrl, '/api/v1/jobs', { method: 'POST', body: fd });
-  if (!jobResp.ok) throw new Error(`Upload failed (${jobResp.status})`);
+  const session = await ensureSession(baseUrl);
+  const limit = session.maxUploadBytes || DEFAULT_MAX_UPLOAD_BYTES;
+  if (file.size > limit) {
+    // nginx rejects oversize bodies with a 413 that carries no CORS headers, so
+    // Safari would only show a bare "Load failed". Catch it before uploading.
+    throw new Error(`This video is ${formatBytes(file.size)} but the server accepts at most ${formatBytes(limit)}. Trim it, or use Client-only mode (no upload).`);
+  }
+  const jobResp = await uploadJob(baseUrl, fd, (frac) => {
+    showProgress(15 + Math.round(frac * 20), `Uploading video... ${Math.round(frac * 100)}%`, 'Upload');
+  });
+  if (!jobResp.ok) {
+    let detail = '';
+    try { detail = (await jobResp.json()).detail || ''; } catch { /* non-JSON body */ }
+    throw new Error(`Upload failed (${jobResp.status})${detail ? `: ${detail}` : ''}`);
+  }
   const job = await jobResp.json();
 
   let attempts = 0;
