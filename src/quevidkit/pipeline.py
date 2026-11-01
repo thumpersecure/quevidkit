@@ -410,10 +410,22 @@ def _compute_blockiness(gray_frame: Any) -> float:
     gray = gray_frame.astype("float32")
     if gray.shape[0] < 17 or gray.shape[1] < 17:
         return 0.0
-    v_edges = np.abs(gray[:, 7::8] - gray[:, 8::8]).mean() if gray.shape[1] > 8 else 0.0
-    h_edges = np.abs(gray[7::8, :] - gray[8::8, :]).mean() if gray.shape[0] > 8 else 0.0
-    inner_v = np.abs(gray[:, 3::8] - gray[:, 4::8]).mean() if gray.shape[1] > 8 else 0.0
-    inner_h = np.abs(gray[3::8, :] - gray[4::8, :]).mean() if gray.shape[0] > 8 else 0.0
+    # Pair each block-boundary column/row (7, 15, ...) with its right/lower
+    # neighbour (8, 16, ...). The two strided slices differ in length by one
+    # whenever the last boundary sits on the final column/row (e.g. width 320),
+    # so truncate both to the shorter length before subtracting.
+    def _mean_step(a_slice: Any, b_slice: Any, axis: int) -> float:
+        n = min(a_slice.shape[axis], b_slice.shape[axis])
+        if n == 0:
+            return 0.0
+        a = a_slice[:, :n] if axis == 1 else a_slice[:n, :]
+        b = b_slice[:, :n] if axis == 1 else b_slice[:n, :]
+        return float(np.abs(a - b).mean())
+
+    v_edges = _mean_step(gray[:, 7::8], gray[:, 8::8], 1)
+    h_edges = _mean_step(gray[7::8, :], gray[8::8, :], 0)
+    inner_v = _mean_step(gray[:, 3::8], gray[:, 4::8], 1)
+    inner_h = _mean_step(gray[3::8, :], gray[4::8, :], 0)
     return float(max(0.0, (v_edges + h_edges) - (inner_v + inner_h)))
 
 
