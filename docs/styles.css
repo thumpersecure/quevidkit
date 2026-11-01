@@ -242,6 +242,21 @@ h4 { font-size: 0.96rem; font-weight: 600; }
   border-color: var(--border-soft);
   box-shadow: var(--shadow-md);
 }
+.hero-banner {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  max-height: 200px;
+  margin-bottom: 16px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #1a0505;
+}
+.hero-banner video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
 .hero-card h1 { margin-bottom: 12px; }
 .hero-card h1 .accent { color: var(--accent); }
 

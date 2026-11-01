@@ -38,6 +38,13 @@
 
     <!-- ── Hero ─────────────────────────────────────────────────── -->
     <section class="card hero-card">
+      <div class="hero-banner">
+        <video id="heroVideo" autoplay muted loop playsinline preload="metadata"
+               poster="./assets/header-poster.jpg" aria-hidden="true" tabindex="-1">
+          <source src="./assets/header.webm" type="video/webm">
+          <source src="./assets/header.mp4" type="video/mp4">
+        </video>
+      </div>
       <svg class="hero-trace" viewBox="0 0 320 74" aria-hidden="true">
         <path d="M0 40 L44 40 L52 22 L60 58 L68 40 L96 40 L104 30 L112 48 L120 40 L176 40 L184 14 L192 62 L200 40 L232 40 L240 34 L248 44 L256 40 L320 40"/>
       </svg>
@@ -347,6 +354,16 @@
     </details>
   </main>
 
+  <script>
+    // Header loop: poster only for reduced-motion / Save-Data visitors.
+    (function () {
+      var v = document.getElementById('heroVideo');
+      if (!v) return;
+      var lite = (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) ||
+                 (navigator.connection && navigator.connection.saveData);
+      if (lite) { v.removeAttribute('autoplay'); v.preload = 'none'; v.pause(); }
+    })();
+  </script>
   <script type="module" src="./app.js"></script>
 </body>
 </html>
